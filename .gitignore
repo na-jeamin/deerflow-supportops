@@ -33,6 +33,8 @@ backend/scripts/benchmark/*.jsonl
 config.yaml
 mcp_config.json
 extensions_config.json
+.extensions_config.json.lock
+.extensions_config.json.skills-cache-reset.json
 
 # IDE
 .idea/
