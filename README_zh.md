@@ -1,6 +1,8 @@
-# 🦌 DeerFlow - 2.0
+# DeerFlow 上游中文参考文档
 
-[English](./README.md) | 中文 | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md) | [Português](./README_pt.md) | [한국어](./README_ko.md)
+> 本页是保留的 DeerFlow 上游中文文档。二开项目的功能和运行入口请见 [DeerFlow SupportOps 订单助手](README.md)。
+
+[Upstream English](https://github.com/bytedance/deer-flow/blob/c6a39936954d103f24293bfc165cb40e68d44464/README.md) | 上游中文
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)

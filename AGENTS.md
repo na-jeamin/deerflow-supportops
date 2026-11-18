@@ -211,8 +211,9 @@ cd frontend && pnpm rstest run <pattern>     # e.g. pnpm rstest run my-component
 - Backend work → **[backend/AGENTS.md](backend/AGENTS.md)**
 - Frontend work → **[frontend/AGENTS.md](frontend/AGENTS.md)**
 - Setup & install → **[Install.md](Install.md)**, **[CONTRIBUTING.md](CONTRIBUTING.md)**
-- Project overview & usage → **[README.md](README.md)** (translations: `README_zh.md`,
-  `README_ja.md`, `README_fr.md`, `README_ru.md`, `README_pt.md`, `README_ko.md`)
+- SupportOps project overview & usage → **[README.md](README.md)** (Chinese),
+  **[README.en.md](README.en.md)** (English). `README_zh.md` and other inherited
+  translations are upstream reference documents, not SupportOps feature claims.
 - Security policy → **[SECURITY.md](SECURITY.md)**
 - Changes → **[CHANGELOG.md](CHANGELOG.md)**
 - Cutting a release → **[RELEASING.md](RELEASING.md)**
