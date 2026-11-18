@@ -55,6 +55,10 @@ unresolved gating backends return 503; `memory` reports `not_configured`;
 provisioner `/health` is report-only. See `health.py`. `GATEWAY_ENABLE_DOCS=false`
 disables `/docs`, `/redoc` and `/openapi.json`.
 
+`swagger_docs.py` adds CSRF headers only to same-origin mutations using the
+current cookie. Preserve docs toggle, root paths, OAuth redirect and server
+CSRF checks. Coverage: `tests/test_gateway_swagger_csrf.py`.
+
 `build_run_config()` resolves the default LangGraph super-step budget from the
 hot-reloaded top-level `recursion_limit` setting. A valid request-level value
 takes precedence; invalid values fall back to that default, and

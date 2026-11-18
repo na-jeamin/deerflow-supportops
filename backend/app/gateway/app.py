@@ -61,6 +61,7 @@ from app.gateway.routers import (
     uploads,
     user_preferences,
 )
+from app.gateway.swagger_docs import install_swagger_docs
 from app.gateway.trace_middleware import TraceMiddleware
 from deerflow.config import app_config as deerflow_app_config
 from deerflow.logging_config import DEFAULT_LOG_DATE_FORMAT, DEFAULT_LOG_FORMAT, configure_logging
@@ -1093,7 +1094,6 @@ def create_app() -> FastAPI:
         Configured FastAPI application instance.
     """
     config = get_gateway_config()
-    docs_url = "/docs" if config.enable_docs else None
     redoc_url = "/redoc" if config.enable_docs else None
     openapi_url = "/openapi.json" if config.enable_docs else None
 
@@ -1120,7 +1120,7 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
         """,
         version="0.1.0",
         lifespan=lifespan,
-        docs_url=docs_url,
+        docs_url=None,
         redoc_url=redoc_url,
         openapi_url=openapi_url,
         openapi_tags=[
@@ -1182,6 +1182,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
             },
         ],
     )
+
+    if config.enable_docs:
+        install_swagger_docs(app)
 
     # Auth: reject unauthenticated requests to non-public paths (fail-closed safety net)
     app.add_middleware(AuthMiddleware)

@@ -1,5 +1,15 @@
 # 🦌 DeerFlow - 2.0
 
+Local SupportOps development begins with a read-only demonstration order lookup
+extension. Its source, setup, attribution and verification status are documented
+in [extensions/supportops/README.md](extensions/supportops/README.md).
+
+For local API testing at `/docs`, first sign in with `Login Local`. The docs
+page automatically adds the CSRF header to same-origin mutation requests, so
+the Execute buttons work without browser-console scripts. Server-side CSRF
+validation remains enabled. Restart the Gateway and reload `/docs` after
+updating the backend.
+
 English | [中文](./README_zh.md) | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md) | [Português](./README_pt.md) | [한국어](./README_ko.md)
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
