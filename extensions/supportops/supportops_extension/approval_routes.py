@@ -7,9 +7,9 @@ from typing import Literal
 
 from deerflow_extension_api.auth import arequire_plugin_management
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .action_store import decide_action, get_action
+from .action_store import decide_action, get_action, revise_action
 
 
 class ApprovalDecision(BaseModel):
@@ -18,6 +18,22 @@ class ApprovalDecision(BaseModel):
     order_id: str = Field(pattern=r"^ORD-[0-9]{4}$")
     reason: str = Field(min_length=1, max_length=300)
     decision: Literal["approve", "reject"]
+    revision: int = Field(default=1, ge=1, strict=True)
+
+
+class ApplicationRevision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=300)
+    revision: int = Field(ge=1, strict=True)
+
+    @field_validator("reason")
+    @classmethod
+    def nonempty_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("请填写新的售后原因。")
+        return value
 
 
 def build_router() -> APIRouter:
@@ -61,12 +77,29 @@ def build_router() -> APIRouter:
                 decision.order_id,
                 decision.reason,
                 decision.decision,
+                decision.revision,
             )
         except LookupError:
             raise HTTPException(404, "未找到属于你的售后申请。") from None
         except ValueError:
             raise HTTPException(
-                409, "申请内容与确认内容不一致，或已有其他决定。请重新查看。"
+                409, "申请版本或内容与确认内容不一致，或已有其他决定。请重新查看。"
+            ) from None
+
+    @router.post("/actions/{action_id}/revision", summary="修改售后原因并重新等待确认")
+    async def revise_application(
+        request: Request, action_id: str, revision: ApplicationRevision
+    ):
+        user_id = await owner(request, "write")
+        try:
+            return await asyncio.to_thread(
+                revise_action, action_id, user_id, revision.reason, revision.revision
+            )
+        except LookupError:
+            raise HTTPException(404, "未找到属于你的售后申请。") from None
+        except ValueError:
+            raise HTTPException(
+                409, "申请版本已变化或当前状态无法修改，请重新查看。"
             ) from None
 
     return router

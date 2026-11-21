@@ -100,6 +100,8 @@ Record ownership from the host tool context and keep approval decisions out of
 model tool parameters. Update the deployable extension snapshot with its source.
 Approval routes live in the SupportOps extension. Require host plugin authorization,
 a browser session, record ownership and matching order/reason before a decision.
+Reason edits increment the draft revision and reset approval in one transaction.
+Bind decisions to that revision. Treat legacy records as revision 1.
 
 Knowledge management/space policy: `examples/deerflow-extension-knowledge-{management,platform}/`
 (scoped `AGENTS.md`, `CONTRACT.md`). Use existing plugin/router/principal contracts;

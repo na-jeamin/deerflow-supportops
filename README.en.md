@@ -11,8 +11,9 @@ The demo uses fixed local order data. It saves after-sales drafts pending approv
 - A native DeerFlow order lookup extension that validates order IDs and returns both model-readable text and structured results.
 - An after-sales draft tool that stores the request, requester, and thread in SQLite with an initial status of `pending_approval`.
 - Browser-session endpoints for reviewing drafts and recording owner-bound approval or rejection.
+- Draft edits increment a revision and reset approval. Live verification confirmed that an old revision is rejected and the updated revision can be approved.
 - A Swagger UI fix that adds the CSRF header to same-origin mutation requests. Server-side validation stays enabled.
-- Live checks for order lookup, after-sales drafts, approval, rejection and conflicting submissions. Focused and blocking-I/O checks passed 370 tests with 8 skipped. The full standard suite has not completed.
+- Live checks for order lookup, after-sales drafts, approval, rejection, conflicting submissions, revision changes and re-approval. Focused and blocking-I/O checks passed 376 tests with 8 skipped. The full standard suite has not completed.
 
 DeerFlow provides model integration, the agent loop, message history, and tool dispatch. This project adds the business tool and its tests.
 

@@ -204,3 +204,160 @@ def test_competing_decisions_only_commit_one(tmp_path, monkeypatch):
         results = list(pool.map(submit, ["approve", "reject"]))
     assert results.count("conflict") == 1
     assert get_action(action["action_id"], "alice")["status"] in results
+
+
+def test_revision_clears_approval_and_requires_review_of_new_version(approval_client):
+    action = draft()
+    url = f"/api/supportops/actions/{action['action_id']}"
+    assert (
+        approval_client.post(
+            url + "/decision", json=decision_payload(action)
+        ).status_code
+        == 200
+    )
+    response = approval_client.post(
+        url + "/revision", json={"reason": "商品损坏", "revision": 1}
+    )
+    assert response.status_code == 200
+    revised = response.json()
+    assert revised["reason"] == "商品损坏"
+    assert revised["revision"] == 2
+    assert revised["status"] == "pending_approval"
+    assert approval_client.get(url).json() == revised
+    # 第1版内容和第1版确认均失效，只有核对第2版后才能批准。
+    assert (
+        approval_client.post(
+            url + "/decision", json=decision_payload(action)
+        ).status_code
+        == 409
+    )
+    payload = decision_payload(revised)
+    assert approval_client.post(url + "/decision", json=payload).status_code == 409
+    payload["revision"] = 2
+    assert (
+        approval_client.post(url + "/decision", json=payload).json()["status"]
+        == "approved"
+    )
+
+
+def test_old_confirmation_stays_stale_when_content_changes_back(approval_client):
+    action = draft()
+    url = f"/api/supportops/actions/{action['action_id']}"
+    approval_client.post(url + "/revision", json={"reason": "商品损坏", "revision": 1})
+    response = approval_client.post(
+        url + "/revision", json={"reason": action["reason"], "revision": 2}
+    )
+    assert response.json()["revision"] == 3
+    assert (
+        approval_client.post(
+            url + "/decision", json=decision_payload(action)
+        ).status_code
+        == 409
+    )
+    assert approval_client.get(url).json()["status"] == "pending_approval"
+
+
+def test_same_content_revision_is_noop_and_stale_revision_is_rejected(approval_client):
+    action = draft()
+    url = f"/api/supportops/actions/{action['action_id']}"
+    approval_client.post(url + "/decision", json=decision_payload(action))
+    result = approval_client.post(
+        url + "/revision", json={"reason": action["reason"], "revision": 1}
+    )
+    assert result.json()["status"] == "approved"
+    assert result.json()["revision"] == 1
+    assert (
+        approval_client.post(
+            url + "/revision", json={"reason": "商品损坏", "revision": 1}
+        ).status_code
+        == 200
+    )
+    assert (
+        approval_client.post(
+            url + "/revision", json={"reason": "其他原因", "revision": 1}
+        ).status_code
+        == 409
+    )
+    assert approval_client.get(url).json()["reason"] == "商品损坏"
+
+
+def test_revision_checks_identity_missing_records_and_empty_content(approval_client):
+    action = draft()
+    url = f"/api/supportops/actions/{action['action_id']}"
+    payload = {"reason": "商品损坏", "revision": 1}
+    assert (
+        approval_client.post(
+            url + "/revision", json=payload, headers={"x-test-user": "bob"}
+        ).status_code
+        == 404
+    )
+    assert (
+        approval_client.post(
+            url + "/revision", json=payload, headers={"x-test-source": "token"}
+        ).status_code
+        == 403
+    )
+    assert (
+        approval_client.post(
+            url + "/revision", json=payload, headers={"x-test-access": "denied"}
+        ).status_code
+        == 403
+    )
+    assert (
+        approval_client.post(
+            url + "/revision", json={"reason": "   ", "revision": 1}
+        ).status_code
+        == 422
+    )
+    assert (
+        approval_client.post(
+            "/api/supportops/actions/missing/revision", json=payload
+        ).status_code
+        == 404
+    )
+    assert approval_client.get(url).json()["reason"] == action["reason"]
+
+
+def test_legacy_database_preserves_decision_and_adds_revision(
+    approval_client, tmp_path
+):
+    # 使用旧版表结构，验证已经登记并批准的真实旧记录可以继续读取和修改。
+    path = tmp_path / "supportops" / "actions.sqlite3"
+    path.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("""CREATE TABLE actions (
+            action_id TEXT PRIMARY KEY, order_id TEXT, reason TEXT, owner_user_id TEXT,
+            thread_id TEXT, status TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        db.execute(
+            "INSERT INTO actions VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            ("legacy", "ORD-1001", "物流一直没动", "alice", "thread-1", "approved"),
+        )
+    url = "/api/supportops/actions/legacy"
+    assert approval_client.get(url).json()["revision"] == 1
+    assert approval_client.get(url).json()["status"] == "approved"
+    response = approval_client.post(
+        url + "/revision", json={"reason": "商品损坏", "revision": 1}
+    )
+    assert response.json()["status"] == "pending_approval"
+    assert response.json()["revision"] == 2
+
+
+def test_competing_revisions_only_apply_one(tmp_path, monkeypatch):
+    from supportops_extension.action_store import get_action, revise_action
+
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
+    action = draft()
+
+    def submit(reason):
+        try:
+            return revise_action(action["action_id"], "alice", reason, 1)["reason"]
+        except ValueError:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(submit, ["商品损坏", "无法登录服务"]))
+    assert results.count("conflict") == 1
+    saved = get_action(action["action_id"], "alice")
+    assert saved["reason"] in results
+    assert saved["revision"] == 2
