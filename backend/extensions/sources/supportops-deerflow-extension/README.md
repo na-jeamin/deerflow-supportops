@@ -1,4 +1,4 @@
-# SupportOps 只读订单查询扩展
+# SupportOps 订单查询与售后草稿扩展
 
 中文 | [English](#english)
 
@@ -39,6 +39,24 @@ plugins:
 
 看该轮的 `tool` 消息：`ORD-1001` 应显示“配送中”，`ORD-9999` 应显示未找到。工具在运行时的完整名称是 `ext_supportops_order_query_order_822d9a950536`。
 
+沿用同一个 **Wait Run** 请求，把 `content` 改为「请为演示订单 ORD-1001 申请售后，原因是物流停滞。」预期出现 `prepare_after_sales` 对应的工具消息，其中 `artifact.action_id` 为申请编号，`artifact.status` 为 `pending_approval`。申请保存在 `DEER_FLOW_HOME` 下的 `supportops/actions.sqlite3`。默认使用项目根目录的 `.deer-flow`，建议在本地启动命令中显式设置 `DEER_FLOW_HOME`。
+
+## 查看申请和确认决定
+
+在 `/docs` 的 **SupportOps** 分组中打开 `GET /api/supportops/actions/{action_id}`，填写刚登记的申请编号，查看订单号、原因和当前状态。
+
+核对内容后，在 `POST /api/supportops/actions/{action_id}/decision` 填写同一个编号及以下请求体。订单号和原因应与查看结果一致。
+
+```json
+{
+  "order_id": "ORD-1001",
+  "reason": "物流一直没动",
+  "decision": "approve"
+}
+```
+
+`approve` 保存为已批准，`reject` 保存为已拒绝。请求使用当前浏览器的登录会话和宿主 CSRF 校验。接口核对记录归属和申请内容，并在事务中保存状态。同一个决定重发返回已有结果，冲突决定或内容不一致返回 409。工单创建安排在下一阶段。
+
 ## 修改扩展和验证
 
 演示数据与查询函数在 `supportops_extension/__init__.py`。从仓库根目录执行下面的命令可以更新扩展，之后重启 Gateway。
@@ -53,14 +71,16 @@ plugins:
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/test_supportops_order_tool.py -q
 ```
 
-8 项订单离线测试覆盖注册、参数规则、已知/未知订单和工具执行结果。真实运行已验证正常查询、未知订单与状态修改后的返回；未完成上游普通全量回归。
+订单及审批聚焦测试与阻塞 I/O 套件合计 370 项通过、8 项跳过。真实运行已验证订单查询、售后登记、批准、拒绝、相反决定冲突和确认内容不一致的拦截。已批准或拒绝的申请保留原内容，修改申请接口留待后补。普通全量回归尚未取得完整结论。
 
 扩展注册参考 DeerFlow `c6a399369` 的 `examples/deerflow-extension-retrieval` 示例，保留 MIT 许可证与上游归属。
 
 ## English
 
-This read-only extension registers `query_order` through DeerFlow's native `ModelTool` API. It accepts an ID in the form `ORD-` followed by four digits and reads fixed synthetic data without network or write operations. The tool returns text in `content` and structured data in `artifact`, including `data_source: synthetic_demo` and `found`.
+The extension registers two native DeerFlow model tools. `query_order` looks up fixed synthetic orders and returns text and structured data. `prepare_after_sales` accepts an order ID and a reason and saves a draft pending approval.
 
 The managed snapshot is already included in the backend lockfile. Sync the backend environment, add the `plugins` entry shown above to local `config.yaml`, and restart the Gateway. Sign in at `/docs`, create a thread, and use **Wait Run** with the example payload. `ORD-1001` is in transit; `ORD-9999` is not found.
 
-Use the upgrade command above after editing the extension, then restart. Eight focused offline tests cover registration, validation and dispatch. Live runs verified a known order, a missing order and a demo status change. The full standard upstream offline suite has not been completed. Packaging follows DeerFlow's retrieval extension example at `c6a399369` under the MIT license.
+To try a draft, replace the sample message with a request to start after-sales service for `ORD-1001` because the shipment stalled. The draft tool returns an `action_id` and `status: pending_approval` after saving it to SQLite. Use the upgrade command above after editing the extension, then restart. Focused offline tests cover both tools. Live runs verified the lookup tool. Packaging follows DeerFlow's retrieval extension example at `c6a399369` under the MIT license.
+
+The **SupportOps** section in `/docs` provides owner-scoped GET and POST decision endpoints. Review the saved draft, then submit its exact order ID and reason with `decision: approve` or `decision: reject`. Browser-session authentication, host plugin authorization and CSRF checks apply. Identical decisions are repeatable. Conflicting decisions or mismatched content return HTTP 409. Live checks verified draft creation, approval, rejection and both conflict cases. Focused and blocking-I/O checks passed 370 tests with 8 skipped. Draft editing and ticket creation remain for later stages.

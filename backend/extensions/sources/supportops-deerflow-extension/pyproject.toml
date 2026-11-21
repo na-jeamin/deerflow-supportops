@@ -1,12 +1,12 @@
 [project]
 name = "supportops-deerflow-extension"
 version = "0.1.0"
-description = "Read-only SupportOps order lookup tool for DeerFlow"
+description = "SupportOps order lookup and after-sales approvals for DeerFlow"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["deerflow-extension-api>=0.2.9,<0.3"]
+dependencies = ["deerflow-extension-api>=0.2.9,<0.3", "fastapi>=0.115,<1", "pydantic>=2,<3"]
 
 [project.entry-points."deerflow.extensions"]
 supportops = "supportops_extension:install"

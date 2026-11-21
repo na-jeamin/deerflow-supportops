@@ -95,6 +95,12 @@ hard-code business logic into core. Working examples:
 AgentRuns; POSIX, one process/store; approval and session-authorized recovery; uncertain admissions need reconciliation;
 no multi-Gateway failover or hard currency budget.
 
+SupportOps persists pending after-sales drafts in the extension's SQLite store.
+Record ownership from the host tool context and keep approval decisions out of
+model tool parameters. Update the deployable extension snapshot with its source.
+Approval routes live in the SupportOps extension. Require host plugin authorization,
+a browser session, record ownership and matching order/reason before a decision.
+
 Knowledge management/space policy: `examples/deerflow-extension-knowledge-{management,platform}/`
 (scoped `AGENTS.md`, `CONTRACT.md`). Use existing plugin/router/principal contracts;
 retrieval stays independent. Space policy intersects administrator/resource/operation

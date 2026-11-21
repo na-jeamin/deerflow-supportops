@@ -4,13 +4,15 @@
 
 A DeerFlow-based order assistant that adds a read-only tool for looking up synthetic orders. The model requests a lookup, DeerFlow executes the tool, and the model answers using the returned result.
 
-The current version uses fixed local demo data. It does not connect to a production order system or implement ticket creation or human approval.
+The demo uses fixed local order data. It saves after-sales drafts pending approval. The requester can review and approve or reject a draft through browser-session endpoints. Ticket creation is planned for the next stage.
 
 ## What this project adds
 
 - A native DeerFlow order lookup extension that validates order IDs and returns both model-readable text and structured results.
+- An after-sales draft tool that stores the request, requester, and thread in SQLite with an initial status of `pending_approval`.
+- Browser-session endpoints for reviewing drafts and recording owner-bound approval or rejection.
 - A Swagger UI fix that adds the CSRF header to same-origin mutation requests. Server-side validation stays enabled.
-- Offline tests and live checks for a known order, a missing order, and a demo status change.
+- Live checks for order lookup, after-sales drafts, approval, rejection and conflicting submissions. Focused and blocking-I/O checks passed 370 tests with 8 skipped. The full standard suite has not completed.
 
 DeerFlow provides model integration, the agent loop, message history, and tool dispatch. This project adds the business tool and its tests.
 

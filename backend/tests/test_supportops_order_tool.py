@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -19,7 +21,7 @@ from supportops_extension import _QUERY_ORDER_SCHEMA, _query_order, install  # n
 
 
 @pytest.fixture
-def registered_order_tool(monkeypatch):
+def registered_tools(monkeypatch):
     monkeypatch.syspath_prepend(str(EXTENSION_DIR))
 
     from deerflow.extensions.loader import ExtensionSpec, load_extensions
@@ -29,11 +31,23 @@ def registered_order_tool(monkeypatch):
         [ExtensionSpec(use="supportops_extension:install", config={"enabled": True})]
     )
     assert diagnostics == []
-    (tool,) = build_plugin_tools(loaded)
-    return tool
+    return {tool.name: tool for tool in build_plugin_tools(loaded)}
 
 
-async def _dispatch(tool, payload):
+@pytest.fixture
+def registered_order_tool(registered_tools):
+    return registered_tools["ext_supportops_order_query_order_822d9a950536"]
+
+
+@pytest.fixture
+def registered_draft_tool(registered_tools, monkeypatch, tmp_path):
+    from deerflow.extensions.plugin_tools import plugin_tool_name
+
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
+    return registered_tools[plugin_tool_name("supportops.order", "prepare_after_sales")]
+
+
+async def _dispatch(tool, payload, user_id="supportops-test-user"):
     from deerflow.agents.thread_state import get_thread_state_schema
 
     graph = StateGraph(get_thread_state_schema("full"))
@@ -47,12 +61,19 @@ async def _dispatch(tool, payload):
             "messages": [
                 AIMessage(
                     content="",
-                    tool_calls=[{"id": call_id, "name": tool.name, "args": payload, "type": "tool_call"}],
+                    tool_calls=[
+                        {
+                            "id": call_id,
+                            "name": tool.name,
+                            "args": payload,
+                            "type": "tool_call",
+                        }
+                    ],
                 )
             ]
         },
         config={"configurable": {"thread_id": "supportops-test-thread"}},
-        context={"user_id": "supportops-test-user", "thread_id": "supportops-test-thread"},
+        context={"user_id": user_id, "thread_id": "supportops-test-thread"},
     )
     return result["messages"][-1]
 
@@ -65,14 +86,17 @@ class RecordingRegistry:
         self.contributions.append(contribution)
         return True
 
+    def routers(self, routers):
+        self.http_routers = tuple(routers)
 
-def test_extension_registers_one_read_only_order_tool() -> None:
+
+def test_extension_registers_the_read_only_order_tool() -> None:
     registry = RecordingRegistry()
 
     install(registry, {"enabled": True})
 
     (contribution,) = registry.contributions
-    (tool,) = contribution.tools
+    tool = next(tool for tool in contribution.tools if tool.name == "query_order")
     assert contribution.namespace == "supportops.order"
     assert tool.name == "query_order"
     assert tool.input_schema == _QUERY_ORDER_SCHEMA
@@ -119,7 +143,9 @@ def test_unknown_order_returns_explicit_not_found_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_registered_tool_dispatch_returns_order_to_agent(registered_order_tool) -> None:
+async def test_registered_tool_dispatch_returns_order_to_agent(
+    registered_order_tool,
+) -> None:
     message = await _dispatch(registered_order_tool, {"order_id": "ORD-1001"})
 
     assert isinstance(message, ToolMessage)
@@ -133,10 +159,79 @@ async def test_registered_tool_dispatch_returns_order_to_agent(registered_order_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", [{}, {"order_id": "bad-id"}, {"order_id": "ORD-1001", "write": True}])
-async def test_registered_tool_dispatch_rejects_invalid_arguments(registered_order_tool, payload) -> None:
+@pytest.mark.parametrize(
+    "payload", [{}, {"order_id": "bad-id"}, {"order_id": "ORD-1001", "write": True}]
+)
+async def test_registered_tool_dispatch_rejects_invalid_arguments(
+    registered_order_tool, payload
+) -> None:
     message = await _dispatch(registered_order_tool, payload)
 
     assert isinstance(message, ToolMessage)
     assert message.tool_call_id == "supportops-test-call"
     assert message.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_draft_is_persisted_with_runtime_user_and_pending_status(
+    registered_draft_tool, tmp_path
+) -> None:
+    message = await _dispatch(
+        registered_draft_tool, {"order_id": "ORD-1001", "reason": "物流停滞"}
+    )
+
+    assert message.status == "success"
+    assert "待审批" in message.content
+    action_id = message.artifact["action_id"]
+    assert message.artifact["status"] == "pending_approval"
+    with closing(sqlite3.connect(tmp_path / "supportops" / "actions.sqlite3")) as db:
+        row = db.execute(
+            "SELECT order_id, reason, owner_user_id, thread_id, status FROM actions WHERE action_id = ?",
+            (action_id,),
+        ).fetchone()
+    assert row == (
+        "ORD-1001",
+        "物流停滞",
+        "supportops-test-user",
+        "supportops-test-thread",
+        "pending_approval",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "user_id", "expected"),
+    [
+        (
+            {"order_id": "ORD-9999", "reason": "物流停滞"},
+            "supportops-test-user",
+            "order_not_found",
+        ),
+        (
+            {"order_id": "ORD-1001", "reason": "   "},
+            "supportops-test-user",
+            "invalid_reason",
+        ),
+        ({"order_id": "ORD-1001", "reason": "物流停滞"}, "default", "missing_identity"),
+        (
+            {"order_id": "ORD-1001", "reason": "物流停滞", "status": "approved"},
+            "supportops-test-user",
+            None,
+        ),
+        (
+            {"order_id": "ORD-1001", "reason": "物流停滞", "owner_user_id": "other"},
+            "supportops-test-user",
+            None,
+        ),
+    ],
+)
+async def test_ineligible_draft_does_not_write(
+    registered_draft_tool, tmp_path, payload, user_id, expected
+) -> None:
+    message = await _dispatch(registered_draft_tool, payload, user_id=user_id)
+
+    if expected is None:
+        assert message.status == "error"
+    else:
+        assert message.artifact["error"] == expected
+    assert not (tmp_path / "supportops" / "actions.sqlite3").exists()
