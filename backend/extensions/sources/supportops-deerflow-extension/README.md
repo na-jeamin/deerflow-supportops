@@ -56,7 +56,7 @@ plugins:
 }
 ```
 
-`approve` 保存为已批准，`reject` 保存为已拒绝。请求使用当前浏览器的登录会话和宿主 CSRF 校验。接口核对记录归属和申请内容，并在事务中保存状态。同一个决定重发返回已有结果，冲突决定或内容不一致返回 409。工单创建安排在下一阶段。
+`approve` 保存为已批准，`reject` 保存为已拒绝。请求使用当前浏览器的登录会话和宿主 CSRF 校验。接口核对记录归属和申请内容，并在事务中保存状态。同一个决定重发返回已有结果，冲突决定或内容不一致返回 409。
 
 ## 修改原因后重新确认
 
@@ -70,6 +70,8 @@ plugins:
 ```
 
 修改成功会返回新原因、`revision: 2` 和 `status: pending_approval`，供用户重新核对。然后在决定接口提交新原因和第 2 版编号，选择批准或拒绝。旧版本确认返回 409。原因实际改变时才增加版本，同样内容重复提交保留原状态。历史数据库记录按第 1 版读取，在后续写入时自动补版本字段。
+
+在 `POST /api/supportops/actions/{action_id}/execute` 填入已批准的申请编号，请求体填写当前版本，例如 `{"revision": 3}`。订单号和原因从已批准的申请读取。成功后返回 `status: succeeded` 和工单编号 `ticket_id`。再次提交相同请求会返回同一张工单。旧版本、待审批和已拒绝的申请返回 409。
 
 ## 修改扩展和验证
 
@@ -85,7 +87,7 @@ plugins:
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/test_supportops_order_tool.py -q
 ```
 
-订单及审批聚焦测试覆盖36个用例。真实运行已验证订单查询、售后登记、批准、拒绝、相反决定冲突、内容不一致拦截、修改原因后重置审批、第1版确认失效及第3版重新批准。聚焦测试与阻塞 I/O 套件共 376 项通过、8 项跳过。普通全量回归尚未取得完整结论。
+真实运行已验证订单查询、售后登记、批准、拒绝、冲突拦截、修改原因后重新确认，以及首次建单、同版重试和旧版执行拦截。SQLite 核对确认重试后仍有一张工单。T6 的 SupportOps 离线聚焦测试共 33 项通过，覆盖并发执行和失败回滚。普通全量回归待完成。
 
 扩展注册参考 DeerFlow `c6a399369` 的 `examples/deerflow-extension-retrieval` 示例，保留 MIT 许可证与上游归属。
 
@@ -97,4 +99,6 @@ The managed snapshot is already included in the backend lockfile. Sync the backe
 
 To try a draft, replace the sample message with a request to start after-sales service for `ORD-1001` because the shipment stalled. The draft tool returns an `action_id` and `status: pending_approval` after saving it to SQLite. Use the upgrade command above after editing the extension, then restart. Focused offline tests cover both tools. Live runs verified the lookup tool. Packaging follows DeerFlow's retrieval extension example at `c6a399369` under the MIT license.
 
-The **SupportOps** section in `/docs` provides owner-scoped GET, revision and decision endpoints. Review the saved draft, then submit its exact order ID, reason and revision with `decision: approve` or `decision: reject`. Browser-session authentication, host plugin authorization and CSRF checks apply. Editing a reason increments the revision and resets the status to pending approval. Older confirmations return HTTP 409, including when the reason changes back later. Legacy records start at revision 1. Live checks verified draft creation, approval, rejection, conflicting decisions, a content edit, rejection of the stale revision, and approval of the current revision. Focused and blocking-I/O checks passed 376 tests with 8 skipped. Ticket creation belongs to the next stage.
+The **SupportOps** section in `/docs` provides owner-scoped GET, revision and decision endpoints. Review the saved draft, then submit its exact order ID, reason and revision with `decision: approve` or `decision: reject`. Browser-session authentication, host plugin authorization and CSRF checks apply. Editing a reason increments the revision and resets the status to pending approval. Older confirmations return HTTP 409, including when the reason changes back later. Legacy records start at revision 1. Live checks verified draft creation, approval, rejection, conflicting decisions, a content edit, rejection of the stale revision, and approval of the current revision. Focused and blocking-I/O checks for that stage passed 376 tests with 8 skipped.
+
+Use `POST /api/supportops/actions/{action_id}/execute` with the current approved revision to create a local demo ticket. Retrying the same request returns the saved ticket. Creating the ticket and marking the application `succeeded` share one SQLite transaction.

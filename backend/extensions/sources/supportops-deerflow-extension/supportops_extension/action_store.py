@@ -1,4 +1,4 @@
-"""SQLite storage for pending SupportOps actions."""
+"""SQLite storage for SupportOps actions and after-sales tickets."""
 
 from __future__ import annotations
 
@@ -171,3 +171,56 @@ def revise_action(
         )
         result.update(reason=reason, status="pending_approval", revision=revision + 1)
     return result
+
+
+def execute_action(action_id: str, owner_user_id: str, revision: int) -> Action:
+    """Create one ticket for the approved revision, or return its saved ticket."""
+    path = _database_path()
+    if not path.is_file():
+        raise LookupError("Application not found")
+    with (
+        closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=5)) as db,
+        db,
+    ):
+        db.row_factory = sqlite3.Row
+        # 先拿到写权限，再读审批状态，避免两个执行请求同时读到 approved。
+        db.execute("BEGIN IMMEDIATE")
+        _ensure_revision(db)
+        action = db.execute(
+            "SELECT * FROM actions WHERE action_id=? AND owner_user_id=?",
+            (action_id, owner_user_id),
+        ).fetchone()
+        if action is None:
+            raise LookupError("Application not found")
+        if action["revision"] != revision:
+            raise ValueError("Application revision changed; review it again")
+        if action["status"] == "succeeded":
+            ticket = db.execute(
+                "SELECT * FROM tickets WHERE action_id=?", (action_id,)
+            ).fetchone()
+            if ticket is None:
+                raise sqlite3.DatabaseError("Completed application has no ticket")
+            return dict(ticket)
+        if action["status"] != "approved":
+            raise ValueError("Application must be approved before execution")
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS tickets (
+                ticket_id TEXT PRIMARY KEY NOT NULL,
+                action_id TEXT NOT NULL UNIQUE,
+                order_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # 订单号和原因从已批准的记录取出，调用方只提供申请编号和版本。
+        ticket = db.execute(
+            "INSERT INTO tickets (ticket_id, action_id, order_id, reason, revision) VALUES (?, ?, ?, ?, ?) RETURNING *",
+            (uuid4().hex, action_id, action["order_id"], action["reason"], revision),
+        ).fetchone()
+        # 工单和成功状态一起提交，任一步失败时一起回滚。
+        db.execute(
+            "UPDATE actions SET status='succeeded' WHERE action_id=?", (action_id,)
+        )
+    return dict(ticket)

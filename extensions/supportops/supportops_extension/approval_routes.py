@@ -1,4 +1,4 @@
-"""Authenticated browser endpoints for reviewing and deciding SupportOps drafts."""
+"""Authenticated browser endpoints for reviewing and executing SupportOps drafts."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from deerflow_extension_api.auth import arequire_plugin_management
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .action_store import decide_action, get_action, revise_action
+from .action_store import decide_action, execute_action, get_action, revise_action
 
 
 class ApprovalDecision(BaseModel):
@@ -34,6 +34,12 @@ class ApplicationRevision(BaseModel):
         if not value:
             raise ValueError("请填写新的售后原因。")
         return value
+
+
+class ApplicationExecution(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1, strict=True)
 
 
 def build_router() -> APIRouter:
@@ -101,5 +107,20 @@ def build_router() -> APIRouter:
             raise HTTPException(
                 409, "申请版本已变化或当前状态无法修改，请重新查看。"
             ) from None
+
+    @router.post("/actions/{action_id}/execute", summary="为已批准的售后申请创建工单")
+    async def execute_application(
+        request: Request, action_id: str, execution: ApplicationExecution
+    ):
+        user_id = await owner(request, "write")
+        try:
+            ticket = await asyncio.to_thread(
+                execute_action, action_id, user_id, execution.revision
+            )
+        except LookupError:
+            raise HTTPException(404, "未找到属于你的售后申请。") from None
+        except ValueError:
+            raise HTTPException(409, "请先查看并批准申请的当前版本。") from None
+        return {"status": "succeeded", **ticket}
 
     return router

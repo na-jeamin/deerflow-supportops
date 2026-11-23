@@ -4,7 +4,7 @@
 
 A DeerFlow-based order assistant that adds a read-only tool for looking up synthetic orders. The model requests a lookup, DeerFlow executes the tool, and the model answers using the returned result.
 
-The demo uses fixed local order data. It saves after-sales drafts pending approval. The requester can review and approve or reject a draft through browser-session endpoints. Ticket creation is planned for the next stage.
+The demo uses fixed local order data. It saves after-sales drafts pending approval. The requester can review and approve or reject a draft through browser-session endpoints, then execute the approved request to create a local SQLite ticket.
 
 ## What this project adds
 
@@ -12,10 +12,11 @@ The demo uses fixed local order data. It saves after-sales drafts pending approv
 - An after-sales draft tool that stores the request, requester, and thread in SQLite with an initial status of `pending_approval`.
 - Browser-session endpoints for reviewing drafts and recording owner-bound approval or rejection.
 - Draft edits increment a revision and reset approval. Live verification confirmed that an old revision is rejected and the updated revision can be approved.
+- Execution checks ownership, revision, and approval. Ticket creation and the application status update share one SQLite transaction. Retrying the same request returns the saved ticket.
 - A Swagger UI fix that adds the CSRF header to same-origin mutation requests. Server-side validation stays enabled.
-- Live checks for order lookup, after-sales drafts, approval, rejection, conflicting submissions, revision changes and re-approval. Focused and blocking-I/O checks passed 376 tests with 8 skipped. The full standard suite has not completed.
+- Live checks cover order lookup, after-sales drafts, approval, rejection, revision changes, ticket creation, same-revision retry and rejection of a stale execution request. A SQLite check confirmed one ticket after retry. All 33 focused SupportOps tests passed for this stage. Full regression coverage is pending.
 
-DeerFlow provides model integration, the agent loop, message history, and tool dispatch. This project adds the business tool and its tests.
+DeerFlow provides model integration, the agent loop, message history, and tool dispatch. This project adds the business tools, approval and ticket workflows, and their tests.
 
 ## Try it
 

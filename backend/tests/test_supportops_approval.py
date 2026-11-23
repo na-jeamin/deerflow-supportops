@@ -19,7 +19,12 @@ sys.path.insert(
     0, str(Path(__file__).resolve().parents[2] / "extensions" / "supportops")
 )
 
-from supportops_extension.action_store import save_pending_action  # noqa: E402
+from supportops_extension.action_store import (  # noqa: E402
+    decide_action,
+    execute_action,
+    get_action,
+    save_pending_action,
+)
 
 
 @pytest.fixture
@@ -62,6 +67,113 @@ def decision_payload(action, decision="approve"):
         "reason": action["reason"],
         "decision": decision,
     }
+
+
+def test_execute_endpoint_requires_owner_and_current_approval(approval_client):
+    action = draft()
+    url = f"/api/supportops/actions/{action['action_id']}"
+    payload = {"revision": 2}
+    assert (
+        approval_client.post(url + "/execute", json={"revision": 1}).status_code == 409
+    )
+    assert (
+        approval_client.post(
+            url + "/revision", json={"reason": "商品无法正常使用", "revision": 1}
+        ).status_code
+        == 200
+    )
+    assert (
+        approval_client.post(
+            url + "/decision",
+            json={
+                **decision_payload(action),
+                "reason": "商品无法正常使用",
+                "revision": 2,
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        approval_client.post(url + "/execute", json={"revision": 1}).status_code == 409
+    )
+    assert (
+        approval_client.post(
+            url + "/execute", json=payload, headers={"x-test-user": "bob"}
+        ).status_code
+        == 404
+    )
+    assert (
+        approval_client.post(
+            url + "/execute", json=payload, headers={"x-test-source": "api_key"}
+        ).status_code
+        == 403
+    )
+
+    result = approval_client.post(url + "/execute", json=payload)
+    assert result.status_code == 200
+    ticket = result.json()
+    assert ticket["status"] == "succeeded"
+    assert ticket["action_id"] == action["action_id"]
+    assert ticket["reason"] == "商品无法正常使用"
+    assert ticket["revision"] == 2
+    assert approval_client.post(url + "/execute", json=payload).json() == ticket
+    assert approval_client.get(url).json()["status"] == "succeeded"
+    assert (
+        approval_client.post(
+            url + "/revision", json={"reason": "又改了原因", "revision": 2}
+        ).status_code
+        == 409
+    )
+
+
+def test_parallel_executions_persist_one_ticket_per_action(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
+    action_id = draft()["action_id"]
+    next_action_id = draft()["action_id"]
+    for approved_id in (action_id, next_action_id):
+        decide_action(approved_id, "alice", "ORD-1001", "物流一直没动", "approve")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(execute_action, action_id, "alice", 1)
+        second = executor.submit(execute_action, action_id, "alice", 1)
+        ticket = first.result()
+        assert second.result() == ticket
+    assert (
+        execute_action(next_action_id, "alice", 1)["ticket_id"] != ticket["ticket_id"]
+    )
+    with closing(sqlite3.connect(tmp_path / "supportops" / "actions.sqlite3")) as db:
+        assert db.execute(
+            "SELECT ticket_id FROM tickets WHERE action_id=?", (action_id,)
+        ).fetchall() == [(ticket["ticket_id"],)]
+
+
+def test_execution_rolls_back_ticket_if_status_update_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
+    first_id = draft()["action_id"]
+    action_id = draft()["action_id"]
+    for approved_id in (first_id, action_id):
+        decide_action(approved_id, "alice", "ORD-1001", "物流一直没动", "approve")
+    execute_action(first_id, "alice", 1)
+    with (
+        closing(sqlite3.connect(tmp_path / "supportops" / "actions.sqlite3")) as db,
+        db,
+    ):
+        db.execute("""
+            CREATE TRIGGER fail_status_update BEFORE UPDATE ON actions
+            WHEN NEW.status='succeeded'
+            BEGIN SELECT RAISE(ABORT, 'simulated update failure'); END
+        """)
+        with pytest.raises(sqlite3.IntegrityError, match="simulated update failure"):
+            execute_action(action_id, "alice", 1)
+        assert (
+            db.execute(
+                "SELECT ticket_id FROM tickets WHERE action_id=?", (action_id,)
+            ).fetchone()
+            is None
+        )
+        assert get_action(action_id, "alice")["status"] == "approved"
+        db.execute("DROP TRIGGER fail_status_update")
+    assert execute_action(action_id, "alice", 1)["action_id"] == action_id
 
 
 @pytest.mark.parametrize(
