@@ -15,7 +15,7 @@ The demo uses fixed local order data. It saves after-sales drafts pending approv
 - Execution checks ownership, revision, and approval. Ticket creation and the application status update share one SQLite transaction. Retrying the same request returns the saved ticket.
 - A SupportOps workspace page lists the signed-in user's requests and supports editing, approval/rejection, and ticket execution. New requests are still created through the native DeerFlow chat and Agent tools.
 - A Swagger UI fix that adds the CSRF header to same-origin mutation requests. Server-side validation stays enabled.
-- Live checks cover order lookup, after-sales drafts, approval, rejection, revision changes, ticket creation, same-revision retry, stale-revision rejection, and SQLite-lock failure/recovery. All 35 focused SupportOps backend tests and 3 workspace UI interaction tests pass; TypeScript, ESLint, and formatting checks pass. Full regression coverage is pending.
+- Live checks cover order lookup, drafts, approval/rejection, revision changes, ticket creation, retry, stale-revision rejection, and SQLite-lock recovery. A real browser run verified chat registration, editing and reapproval, ticket creation, refresh, and Gateway restart recovery; 11 additional live HTTP/SQLite checks passed. See the [acceptance report](extensions/supportops/ACCEPTANCE-2026-11-24.md). All 3661 frontend tests and 179 related backend checks pass. Full backend execution is still pending; collection alone is not a passing run.
 
 DeerFlow provides model integration, the agent loop, message history, and tool dispatch. This project adds the business tools, approval and ticket workflows, a SupportOps workspace page, and their tests.
 
