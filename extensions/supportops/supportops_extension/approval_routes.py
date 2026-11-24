@@ -9,7 +9,13 @@ from deerflow_extension_api.auth import arequire_plugin_management
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .action_store import decide_action, execute_action, get_action, revise_action
+from .action_store import (
+    decide_action,
+    execute_action,
+    get_action,
+    list_actions,
+    revise_action,
+)
 
 
 class ApprovalDecision(BaseModel):
@@ -61,6 +67,11 @@ def build_router() -> APIRouter:
         if getattr(request.state, "auth_source", None) != "session":
             raise HTTPException(403, "请从浏览器登录后提交确认。")
         return principal.user_id
+
+    @router.get("/actions", summary="列出我的售后申请")
+    async def list_applications(request: Request):
+        user_id = await owner(request, "read")
+        return await asyncio.to_thread(list_actions, user_id)
 
     @router.get("/actions/{action_id}", summary="查看售后申请")
     async def read_application(request: Request, action_id: str):

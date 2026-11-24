@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-这是一个基于 [DeerFlow](https://github.com/bytedance/deer-flow) 二次开发的订单助手。当前版本提供只读订单查询：用户用自然语言提问，模型选择订单工具，DeerFlow 执行查询，模型再根据工具返回组织回答。
+这是一个基于 [DeerFlow](https://github.com/bytedance/deer-flow) 二次开发的订单助手。用户可以在 DeerFlow 聊天界面查询订单、用自然语言登记售后；再通过 SupportOps 工作台审核申请和创建工单。
 
 查询使用固定的本地演示数据。售后申请工具把订单号和原因保存为待审批记录，发起人可通过登录后的接口查看、批准或拒绝。获批后，发起人可执行申请，在本地 SQLite 中创建工单。
 
@@ -13,10 +13,11 @@
 - **用户确认接口**：按申请编号核对记录归属与内容，保存批准或拒绝的决定。
 - **修改后重新确认**：修改原因时增加版本号，将状态重置为待审批；旧版本确认失效。本次真实运行验证了原因修改、第 2 版确认被拦截，以及第 3 版重新批准。
 - **执行与工单写入**：确认申请归属、版本和批准状态后，在同一事务中创建工单并将申请标为已执行。同一申请重试时返回已保存的工单。
+- **SupportOps 网页工作台**：在 DeerFlow 原生前端中查看本人申请，修改原因并重新审批、批准/拒绝申请，或执行已批准申请创建工单。申请登记仍通过聊天中的 Agent 完成。
 - **接口文档页修复**：Swagger 的 Execute 按钮自动为同源提交请求添加 CSRF 请求头，服务端继续校验。
-- **验证**：真实运行覆盖订单查询、售后登记、批准、拒绝、冲突拦截及修改后重新确认。工单验证覆盖首次建单、同版重试得到同一工单、旧版执行被拒绝，并在 SQLite 确认只有一张工单。T6 的 SupportOps 离线聚焦测试共 33 项通过，普通全量回归待完成。
+- **验证**：真实运行覆盖订单查询、售后登记、审批、建单、故障拒绝、SQLite 锁故障及恢复。当前 SupportOps 后端定向测试 35 项通过，工作台前端交互测试 3 项通过，TypeScript、ESLint 与格式检查通过；普通全量回归待完成。
 
-模型接入、Agent 循环、消息记录和工具调度由 DeerFlow 提供。本项目在这些能力上增加订单工具、售后审批、工单执行及其测试。
+模型接入、Agent 循环、消息记录和工具调度由 DeerFlow 提供。本项目在这些能力上增加订单工具、售后审批、工单执行和 SupportOps 工作台及其测试。
 
 ## 看一次查询
 
@@ -34,9 +35,9 @@
 
 ## 运行与源码
 
-1. 参考 [DeerFlow 上游启动说明](https://github.com/bytedance/deer-flow/blob/c6a39936954d103f24293bfc165cb40e68d44464/README_zh.md)，准备后端环境和模型配置。
-2. 按 [订单扩展说明](extensions/supportops/README.md) 启用已纳入依赖的扩展，再启动 Gateway。
-3. 在 Gateway 的 `/docs` 里登录，使用 **Wait Run** 查询演示订单。可通过返回中的 `tool` 消息核对模型回答依据。
+1. 参考 [DeerFlow 上游启动说明](https://github.com/bytedance/deer-flow/blob/c6a39936954d103f24293bfc165cb40e68d44464/README_zh.md)，准备前后端环境和模型配置。
+2. 按 [订单扩展说明](extensions/supportops/README.md) 启用扩展，并启动 DeerFlow 前端和 Gateway。
+3. 打开 DeerFlow 聊天界面查询订单或登记售后申请，再进入工作区侧栏的 **售后工单** 查看申请、修改原因、批准/拒绝或创建工单。`/docs` 保留作接口调试入口。
 
 核心实现见[订单工具源码](extensions/supportops/supportops_extension/__init__.py)，离线用例见[订单工具测试](backend/tests/test_supportops_order_tool.py)。
 

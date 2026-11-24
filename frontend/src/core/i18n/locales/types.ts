@@ -513,6 +513,7 @@ export interface Translations {
     demoChats: string;
     agents: string;
     scheduledTasks: string;
+    supportOps: string;
     agentsDisabledTooltip: string;
     channels: string;
   };
@@ -1152,6 +1153,60 @@ export interface Translations {
       news: { title: string; desc: string; prompt: string };
       issues: { title: string; desc: string; prompt: string };
       weekly: { title: string; desc: string; prompt: string };
+    };
+  };
+
+  supportOps: {
+    title: string;
+    description: string;
+    createInChat: string;
+    createInChatHint: string;
+    refresh: string;
+    loading: string;
+    loadFailed: string;
+    empty: string;
+    selectHint: string;
+    status: {
+      pending_approval: string;
+      approved: string;
+      rejected: string;
+      succeeded: string;
+    };
+    fields: {
+      orderId: string;
+      reason: string;
+      revision: string;
+      createdAt: string;
+      ticketId: string;
+      ticketCreatedAt: string;
+    };
+    actions: {
+      editReason: string;
+      saveReason: string;
+      cancel: string;
+      approve: string;
+      reject: string;
+      createTicket: string;
+      saving: string;
+    };
+    messages: {
+      saved: string;
+      reasonUpdated: string;
+      approved: string;
+      rejected: string;
+      ticketCreated: string;
+      actionFailed: string;
+      reasonPlaceholder: string;
+      pendingExplanation: string;
+      approvedExplanation: string;
+      rejectedExplanation: string;
+      succeededExplanation: string;
+    };
+    errors: {
+      forbidden: string;
+      notFound: string;
+      conflict: string;
+      invalidRequest: string;
     };
   };
 

@@ -23,6 +23,7 @@ from supportops_extension.action_store import (  # noqa: E402
     decide_action,
     execute_action,
     get_action,
+    list_actions,
     save_pending_action,
 )
 
@@ -145,6 +146,72 @@ def test_parallel_executions_persist_one_ticket_per_action(tmp_path, monkeypatch
         assert db.execute(
             "SELECT ticket_id FROM tickets WHERE action_id=?", (action_id,)
         ).fetchall() == [(ticket["ticket_id"],)]
+
+
+def test_list_actions_returns_only_callers_records_and_ticket_details(
+    approval_client, tmp_path
+):
+    action = draft()
+    other = save_pending_action("ORD-1002", "咨询", "bob", "thread-2")
+    rows = approval_client.get("/api/supportops/actions").json()
+    assert len(rows) == 1
+    assert rows[0]["action_id"] == action["action_id"]
+    assert rows[0]["status"] == "pending_approval"
+    assert rows[0]["created_at"]
+    assert rows[0]["ticket_id"] is None
+    assert rows[0]["ticket_created_at"] is None
+    decide_action(action["action_id"], "alice", "ORD-1001", "物流一直没动", "approve")
+    ticket = execute_action(action["action_id"], "alice", 1)
+    rows = approval_client.get("/api/supportops/actions").json()
+    assert len(rows) == 1
+    assert rows[0]["ticket_id"] == ticket["ticket_id"]
+    assert rows[0]["ticket_created_at"] == ticket["created_at"]
+    assert list_actions("bob")[0]["action_id"] == other["action_id"]
+    assert (
+        approval_client.get(
+            "/api/supportops/actions", headers={"x-test-user": "bob"}
+        ).json()[0]["action_id"]
+        == other["action_id"]
+    )
+
+
+def test_list_actions_reads_legacy_draft_without_revision_or_ticket_table(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("DEER_FLOW_HOME", str(tmp_path))
+    path = tmp_path / "supportops" / "actions.sqlite3"
+    path.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute(
+            "CREATE TABLE actions (action_id TEXT PRIMARY KEY, order_id TEXT, "
+            "reason TEXT, owner_user_id TEXT, thread_id TEXT, status TEXT, "
+            "created_at TEXT)"
+        )
+        db.execute(
+            "INSERT INTO actions VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "legacy-action",
+                "ORD-1001",
+                "旧申请",
+                "alice",
+                "thread-1",
+                "approved",
+                "2026-01-01",
+            ),
+        )
+    rows = list_actions("alice")
+    assert rows == [
+        {
+            "action_id": "legacy-action",
+            "order_id": "ORD-1001",
+            "reason": "旧申请",
+            "status": "approved",
+            "revision": 1,
+            "created_at": "2026-01-01",
+            "ticket_id": None,
+            "ticket_created_at": None,
+        }
+    ]
 
 
 def test_execution_rolls_back_ticket_if_status_update_fails(tmp_path, monkeypatch):

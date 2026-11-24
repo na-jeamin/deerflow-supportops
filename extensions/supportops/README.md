@@ -43,7 +43,11 @@ plugins:
 
 ## 查看申请和确认决定
 
-在 `/docs` 的 **SupportOps** 分组中打开 `GET /api/supportops/actions/{action_id}`，填写刚登记的申请编号，查看订单号、原因和当前状态。
+在 DeerFlow 工作区侧栏打开 **售后工单**，即可查看当前登录用户的申请，并执行后续操作。申请登记请在聊天中向 Agent 提出，例如“请为演示订单 ORD-1001 申请售后，原因是物流停滞”。工作台只显示当前登录用户自己的申请，修改、审批和建单请求都会由服务端再次核对身份、权限和版本。
+
+也可以在 `/docs` 的 **SupportOps** 分组中使用 `GET /api/supportops/actions` 列出本人申请，或打开 `GET /api/supportops/actions/{action_id}` 查看单笔申请。
+
+申请列表接口为只读，按当前登录用户过滤，并将申请与可选工单信息合并返回。旧数据库没有工单表时，仍会列出申请并将工单字段返回为空。
 
 核对内容后，在 `POST /api/supportops/actions/{action_id}/decision` 填写同一个编号及以下请求体。订单号和原因应与查看结果一致。
 
@@ -87,7 +91,7 @@ plugins:
 .\backend\.venv\Scripts\python.exe -m pytest backend/tests/test_supportops_order_tool.py -q
 ```
 
-真实运行已验证订单查询、售后登记、批准、拒绝、冲突拦截、修改原因后重新确认，以及首次建单、同版重试和旧版执行拦截。SQLite 核对确认重试后仍有一张工单。T6 的 SupportOps 离线聚焦测试共 33 项通过，覆盖并发执行和失败回滚。普通全量回归待完成。
+真实运行已验证订单查询、售后登记、批准、拒绝、冲突拦截、修改原因后重新确认、首次建单、重试、旧版执行拦截，以及 SQLite 锁期间写入失败和解锁后恢复。SQLite 核对确认重试不会多建工单，失败时未写入申请。35 项 SupportOps 后端定向测试、3 项工作台交互测试及前端类型/lint/格式检查通过；普通全量回归待完成。
 
 扩展注册参考 DeerFlow `c6a399369` 的 `examples/deerflow-extension-retrieval` 示例，保留 MIT 许可证与上游归属。
 
@@ -95,10 +99,10 @@ plugins:
 
 The extension registers two native DeerFlow model tools. `query_order` looks up fixed synthetic orders and returns text and structured data. `prepare_after_sales` accepts an order ID and a reason and saves a draft pending approval.
 
-The managed snapshot is already included in the backend lockfile. Sync the backend environment, add the `plugins` entry shown above to local `config.yaml`, and restart the Gateway. Sign in at `/docs`, create a thread, and use **Wait Run** with the example payload. `ORD-1001` is in transit; `ORD-9999` is not found.
+The managed snapshot is already included in the backend lockfile. Sync the backend environment, add the `plugins` entry shown above to local `config.yaml`, and start DeerFlow with its frontend and Gateway. Use the native chat UI to query orders and ask the Agent to create after-sales drafts.
 
 To try a draft, replace the sample message with a request to start after-sales service for `ORD-1001` because the shipment stalled. The draft tool returns an `action_id` and `status: pending_approval` after saving it to SQLite. Use the upgrade command above after editing the extension, then restart. Focused offline tests cover both tools. Live runs verified the lookup tool. Packaging follows DeerFlow's retrieval extension example at `c6a399369` under the MIT license.
 
-The **SupportOps** section in `/docs` provides owner-scoped GET, revision and decision endpoints. Review the saved draft, then submit its exact order ID, reason and revision with `decision: approve` or `decision: reject`. Browser-session authentication, host plugin authorization and CSRF checks apply. Editing a reason increments the revision and resets the status to pending approval. Older confirmations return HTTP 409, including when the reason changes back later. Legacy records start at revision 1. Live checks verified draft creation, approval, rejection, conflicting decisions, a content edit, rejection of the stale revision, and approval of the current revision. Focused and blocking-I/O checks for that stage passed 376 tests with 8 skipped.
+Open **Support requests** in the workspace sidebar to review your applications, edit a reason, approve or reject, and execute an approved request. The page is owner-scoped; the backend rechecks session, plugin permission and revision on every mutation. Editing a reason increments the revision and resets approval. `GET /api/supportops/actions` lists only the signed-in user's applications and optional ticket details; it also supports legacy databases without a tickets table. `/docs` remains available for API debugging. Older confirmations return HTTP 409, including when the reason changes back later. Legacy records start at revision 1. Live checks verified draft creation, approval, rejection, conflicting decisions, a content edit, rejection of the stale revision, current-revision approval, ticket execution, and SQLite lock failure/recovery.
 
 Use `POST /api/supportops/actions/{action_id}/execute` with the current approved revision to create a local demo ticket. Retrying the same request returns the saved ticket. Creating the ticket and marking the application `succeeded` share one SQLite transaction.

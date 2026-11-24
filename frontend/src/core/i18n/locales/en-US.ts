@@ -689,7 +689,68 @@ export const enUS: Translations = {
     demoChats: "Demo chats",
     agents: "Agents",
     scheduledTasks: "Scheduled tasks",
+    supportOps: "Support requests",
     agentsDisabledTooltip: "Feature not enabled",
+  },
+
+  supportOps: {
+    title: "Support requests and tickets",
+    description:
+      "Create requests in chat, then review, edit, and execute approved requests here.",
+    createInChat: "Create a request in chat",
+    createInChatHint:
+      "For example: Request after-sales service for demo order ORD-1001 because the shipment is delayed.",
+    refresh: "Refresh",
+    loading: "Loading support requests…",
+    loadFailed: "Failed to load support requests",
+    empty: "No support requests yet",
+    selectHint: "Select a request to review its details and available actions.",
+    status: {
+      pending_approval: "Pending approval",
+      approved: "Approved",
+      rejected: "Rejected",
+      succeeded: "Ticket created",
+    },
+    fields: {
+      orderId: "Order ID",
+      reason: "Reason",
+      revision: "Revision",
+      createdAt: "Request created",
+      ticketId: "Ticket ID",
+      ticketCreatedAt: "Ticket created",
+    },
+    actions: {
+      editReason: "Edit reason",
+      saveReason: "Save and request approval again",
+      cancel: "Cancel",
+      approve: "Approve request",
+      reject: "Reject request",
+      createTicket: "Execute and create ticket",
+      saving: "Processing…",
+    },
+    messages: {
+      saved: "Request list refreshed.",
+      reasonUpdated: "Reason updated. The request is pending approval again.",
+      approved: "Request approved.",
+      rejected: "Request rejected.",
+      ticketCreated: "Ticket created.",
+      actionFailed: "Action failed",
+      reasonPlaceholder: "Enter the revised after-sales reason",
+      pendingExplanation: "Review the request, then approve or reject it.",
+      approvedExplanation: "The request is approved and can be executed.",
+      rejectedExplanation:
+        "The request was rejected. Edit the reason to submit it for approval again.",
+      succeededExplanation:
+        "The ticket is created. Retrying returns the same ticket.",
+    },
+    errors: {
+      forbidden: "The signed-in user is not allowed to perform this action.",
+      notFound: "The request was not found or does not belong to this account.",
+      conflict:
+        "The request changed. Refresh it and review the current version.",
+      invalidRequest:
+        "Some submitted values are invalid. Check them and retry.",
+    },
   },
 
   // Knowledge scope for custom-agent chat

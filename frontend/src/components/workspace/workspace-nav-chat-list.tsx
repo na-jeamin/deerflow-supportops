@@ -5,6 +5,7 @@ import {
   CalendarClock,
   MessagesSquare,
   BlocksIcon,
+  ClipboardList,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -105,6 +106,20 @@ export function WorkspaceNavChatList() {
             >
               <BlocksIcon />
               <span>{t.capabilities.title}</span>
+            </Link>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname.startsWith("/workspace/supportops")}
+            asChild
+          >
+            <Link
+              className="text-muted-foreground"
+              href="/workspace/supportops"
+            >
+              <ClipboardList />
+              <span>{t.sidebar.supportOps}</span>
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>

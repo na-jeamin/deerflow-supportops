@@ -8,7 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
-Action = dict[str, str | int]
+Action = dict[str, str | int | None]
 
 
 def _database_path() -> Path:
@@ -90,6 +90,38 @@ def get_action(action_id: str, owner_user_id: str) -> Action:
     if row is None:
         raise LookupError("Application not found")
     return _public_action(row)
+
+
+def list_actions(owner_user_id: str) -> list[Action]:
+    """List the caller's applications and their optional saved tickets."""
+    path = _database_path()
+    if not path.is_file():
+        return []
+    with closing(
+        sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=5)
+    ) as db:
+        db.row_factory = sqlite3.Row
+        columns = {row[1] for row in db.execute("PRAGMA table_info(actions)")}
+        revision_field = "a.revision" if "revision" in columns else "1 AS revision"
+        tickets_exist = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tickets'"
+        ).fetchone()
+        ticket_fields = (
+            "t.ticket_id, t.created_at AS ticket_created_at"
+            if tickets_exist
+            else "NULL AS ticket_id, NULL AS ticket_created_at"
+        )
+        ticket_join = (
+            "LEFT JOIN tickets AS t ON t.action_id=a.action_id" if tickets_exist else ""
+        )
+        rows = db.execute(
+            "SELECT a.action_id, a.order_id, a.reason, a.status, "
+            f"{revision_field}, "
+            f"a.created_at, {ticket_fields} FROM actions AS a {ticket_join} "
+            "WHERE a.owner_user_id=? ORDER BY a.created_at DESC, a.action_id DESC",
+            (owner_user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def decide_action(
