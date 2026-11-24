@@ -35,6 +35,8 @@ export default defineConfig({
       ...shared,
       name: "dom",
       testEnvironment: "happy-dom",
+      // Windows 全量运行时 DOM worker 会争用 CPU；只给界面测试更多时间，保留原断言。
+      testTimeout: 15_000,
       include: ["tests/unit/**/*.dom.test.ts", "tests/unit/**/*.dom.test.tsx"],
     },
   ],

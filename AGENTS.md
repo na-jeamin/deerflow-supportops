@@ -95,13 +95,7 @@ hard-code business logic into core. Working examples:
 AgentRuns; POSIX, one process/store; approval and session-authorized recovery; uncertain admissions need reconciliation;
 no multi-Gateway failover or hard currency budget.
 
-SupportOps persists pending after-sales drafts in the extension's SQLite store.
-Record ownership from the host tool context and keep approval decisions out of
-model tool parameters. Update the deployable extension snapshot with its source.
-Approval routes live in the SupportOps extension. Require host plugin authorization,
-a browser session, record ownership and matching order/reason before a decision.
-Reason edits increment the draft revision and reset approval in one transaction.
-Bind decisions to that revision. Treat legacy records as revision 1.
+SupportOps implementation rules: [extension guide](extensions/supportops/README.md#implementation-rules).
 
 Knowledge management/space policy: `examples/deerflow-extension-knowledge-{management,platform}/`
 (scoped `AGENTS.md`, `CONTRACT.md`). Use existing plugin/router/principal contracts;
@@ -219,9 +213,8 @@ cd frontend && pnpm rstest run <pattern>     # e.g. pnpm rstest run my-component
 - Backend work → **[backend/AGENTS.md](backend/AGENTS.md)**
 - Frontend work → **[frontend/AGENTS.md](frontend/AGENTS.md)**
 - Setup & install → **[Install.md](Install.md)**, **[CONTRIBUTING.md](CONTRIBUTING.md)**
-- SupportOps project overview & usage → **[README.md](README.md)** (Chinese),
-  **[README.en.md](README.en.md)** (English). `README_zh.md` and other inherited
-  translations are upstream reference documents, not SupportOps feature claims.
+- SupportOps: **[中文](README.md)** / **[English](README.en.md)**. Other inherited
+  README translations document upstream features.
 - Security policy → **[SECURITY.md](SECURITY.md)**
 - Changes → **[CHANGELOG.md](CHANGELOG.md)**
 - Cutting a release → **[RELEASING.md](RELEASING.md)**

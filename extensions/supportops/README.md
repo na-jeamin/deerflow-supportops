@@ -79,6 +79,9 @@ plugins:
 
 ## 修改扩展和验证
 
+测试导入隔离、全量前端结果和不重装环境的本地网页启动方法见
+[验证记录与网页验收入口](VALIDATION.md)。
+
 演示数据与查询函数在 `supportops_extension/__init__.py`。从仓库根目录执行下面的命令可以更新扩展，之后重启 Gateway。
 
 ```powershell
@@ -96,6 +99,16 @@ plugins:
 扩展注册参考 DeerFlow `c6a399369` 的 `examples/deerflow-extension-retrieval` 示例，保留 MIT 许可证与上游归属。
 
 ## English
+
+### Implementation rules
+
+SupportOps persists pending after-sales drafts in the extension's SQLite store.
+Record ownership from the host tool context and keep approval decisions out of
+model tool parameters. Update the deployable extension snapshot with its source.
+Approval routes live in the SupportOps extension. Require host plugin authorization,
+a browser session, record ownership and matching order/reason before a decision.
+Reason edits increment the draft revision and reset approval in one transaction.
+Bind decisions to that revision. Treat legacy records as revision 1.
 
 The extension registers two native DeerFlow model tools. `query_order` looks up fixed synthetic orders and returns text and structured data. `prepare_after_sales` accepts an order ID and a reason and saves a draft pending approval.
 

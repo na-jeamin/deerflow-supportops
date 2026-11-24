@@ -17,6 +17,9 @@ import pytest
 # Make 'app' and 'deerflow' importable from any working directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+# 在收集任何测试前优先使用本仓库扩展，避免 Gateway 的提前导入缓存已安装的旧快照。
+# 只影响当前 pytest 进程，不修改虚拟环境或运行服务的导入设置。
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "extensions" / "supportops"))
 
 # Break the circular import chain that exists in production code:
 #   deerflow.subagents.__init__
