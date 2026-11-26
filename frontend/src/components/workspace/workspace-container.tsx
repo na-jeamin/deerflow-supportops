@@ -12,6 +12,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { PROJECT_REPOSITORY_URL } from "@/core/branding";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
@@ -103,7 +104,8 @@ export function WorkspaceHeader({
       <div className="pr-4">
         <Tooltip content={t.workspace.githubTooltip}>
           <a
-            href="https://github.com/bytedance/deer-flow"
+            href={PROJECT_REPOSITORY_URL}
+            aria-label={t.workspace.githubTooltip}
             target="_blank"
             rel="noopener noreferrer"
             className="opacity-75 transition hover:opacity-100"

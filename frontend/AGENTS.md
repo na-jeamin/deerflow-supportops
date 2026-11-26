@@ -20,6 +20,10 @@ docs builds after changes.
 
 ## Commands
 
+SupportOps display names and repository links live in `src/core/branding.ts`;
+localized page titles and workspace labels remain in the en/zh dictionaries.
+Keep the personal repository separate from upstream attribution in About.
+
 Run from `frontend/`; host pnpm calls use `../scripts/pnpm.py`.
 
 - `pnpm dev`: Webpack development server; `pnpm build` / `pnpm start`: production build/server.

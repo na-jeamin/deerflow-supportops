@@ -2,9 +2,28 @@
  * About DeerFlow markdown content. Inlined to avoid raw-loader dependency
  * (Turbopack cannot resolve raw-loader for .md imports).
  */
+import {
+  PROJECT_NAME,
+  PROJECT_REPOSITORY_URL,
+  UPSTREAM_REPOSITORY_URL,
+} from "@/core/branding";
 import { APP_VERSION } from "@/version";
 
-export const aboutMarkdown = `# 🦌 [About DeerFlow ${APP_VERSION}](https://github.com/bytedance/deer-flow)
+export const aboutMarkdown = `# ${PROJECT_NAME}
+
+基于 [DeerFlow](${UPSTREAM_REPOSITORY_URL}) 二次开发的订单与售后助手。
+
+本项目新增订单查询工具、售后申请、人工审批、版本校验、幂等建单和售后工作台。订单使用固定演示数据，申请与工单保存在 SQLite 中。
+
+模型接入、Agent 循环、工具调度和通用聊天界面来自 DeerFlow；下方保留上游介绍与致谢。
+
+[本项目仓库 / SupportOps repository](${PROJECT_REPOSITORY_URL})
+
+An order and after-sales assistant built on DeerFlow. SupportOps adds order tools, persisted requests, human approval, revision checks, idempotent ticket creation and the after-sales workspace. The agent runtime and general chat interface come from DeerFlow.
+
+---
+
+# 🦌 [About DeerFlow ${APP_VERSION}](${UPSTREAM_REPOSITORY_URL})
 
 > **From Open Source, Back to Open Source**
 

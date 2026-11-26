@@ -14,6 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { PROJECT_SHORT_NAME } from "@/core/branding";
 
 export type MobileNavLink = {
   href: string;
@@ -91,7 +92,9 @@ export function MobileNav({
         }}
       >
         <SheetHeader>
-          <SheetTitle className="font-serif text-xl">DeerFlow</SheetTitle>
+          <SheetTitle className="font-serif text-xl">
+            {PROJECT_SHORT_NAME}
+          </SheetTitle>
         </SheetHeader>
         {search && (
           // Radix's modal scroll lock only allows descendants of its content.

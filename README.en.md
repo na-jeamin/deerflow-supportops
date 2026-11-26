@@ -6,6 +6,8 @@ A DeerFlow-based order assistant. Users can look up demo orders and create after
 
 The demo uses fixed local order data. It saves after-sales drafts pending approval. The requester can review and approve or reject a draft through browser-session endpoints, then execute the approved request to create a local SQLite ticket.
 
+The workspace and sign-in pages use SupportOps branding, and the project GitHub buttons link to this repository. The About page preserves the DeerFlow attribution and acknowledgments.
+
 ## What this project adds
 
 - A native DeerFlow order lookup extension that validates order IDs and returns both model-readable text and structured results.

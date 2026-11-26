@@ -20,6 +20,11 @@ test("aboutMarkdown heading interpolates the app version", async () => {
   // Milestone copy in the acknowledgments refers to the 1.0/2.0 product
   // generations and must NOT be parameterized.
   expect(aboutMarkdown).toContain("DeerFlow 1.0 and 2.0");
+  expect(aboutMarkdown).toContain("# SupportOps 订单助手");
+  expect(aboutMarkdown).toContain(
+    "https://github.com/na-jeamin/deerflow-supportops",
+  );
+  expect(aboutMarkdown).toContain("https://github.com/bytedance/deer-flow");
 });
 
 test("aboutMarkdown heading reflects the package version when env is unset", async () => {

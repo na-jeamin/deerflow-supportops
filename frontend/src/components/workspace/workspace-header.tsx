@@ -10,6 +10,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { PROJECT_NAME, PROJECT_SHORT_NAME } from "@/core/branding";
 import { useI18n } from "@/core/i18n/hooks";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,7 @@ export function WorkspaceHeader({ className }: { className?: string }) {
                 isMobile && "hidden",
               )}
             >
-              DF
+              SO
             </div>
             <WorkspaceSidebarTrigger
               className={cn(
@@ -50,12 +51,19 @@ export function WorkspaceHeader({ className }: { className?: string }) {
         ) : (
           <div className="flex items-center justify-between gap-2">
             {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" ? (
-              <Link href="/" className="text-primary ml-2 font-serif">
-                DeerFlow
+              <Link
+                href="/"
+                title={PROJECT_NAME}
+                className="text-primary ml-2 font-serif"
+              >
+                {PROJECT_SHORT_NAME}
               </Link>
             ) : (
-              <div className="text-primary ml-2 cursor-default font-serif">
-                DeerFlow
+              <div
+                title={PROJECT_NAME}
+                className="text-primary ml-2 cursor-default font-serif"
+              >
+                {PROJECT_SHORT_NAME}
               </div>
             )}
             <WorkspaceSidebarTrigger />

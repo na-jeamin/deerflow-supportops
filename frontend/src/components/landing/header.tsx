@@ -3,13 +3,12 @@ import Link from "next/link";
 import { type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PROJECT_REPOSITORY_URL, PROJECT_SHORT_NAME } from "@/core/branding";
 import { DEFAULT_LOCALE, type Locale } from "@/core/i18n/locale";
 import { getI18n } from "@/core/i18n/server";
-import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
 import { MobileNav } from "./mobile-nav";
-import { StarCounter } from "./star-counter";
 
 export type HeaderProps = {
   className?: string;
@@ -37,12 +36,12 @@ export async function Header({
     >
       <div className="flex min-w-0 items-center gap-6">
         <a
-          href={homeURL ?? "https://github.com/bytedance/deer-flow"}
+          href={homeURL ?? PROJECT_REPOSITORY_URL}
           target={isExternalHome ? "_blank" : "_self"}
           rel={isExternalHome ? "noopener noreferrer" : undefined}
           className="font-serif text-xl whitespace-nowrap"
         >
-          DeerFlow
+          {PROJECT_SHORT_NAME}
         </a>
       </div>
       <nav className="ml-auto hidden items-center gap-5 text-sm font-medium sm:flex md:mr-8 md:gap-8">
@@ -75,13 +74,12 @@ export async function Header({
           className="group relative z-10"
         >
           <a
-            href="https://github.com/bytedance/deer-flow"
+            href={PROJECT_REPOSITORY_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
             <GitHubLogoIcon className="size-4" />
-            <span className="hidden sm:inline">Star on GitHub</span>
-            {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" && <StarCounter />}
+            <span className="hidden sm:inline">GitHub</span>
           </a>
         </Button>
       </div>
