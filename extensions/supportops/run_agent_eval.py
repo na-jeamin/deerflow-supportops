@@ -217,6 +217,149 @@ def extract_action_id(response_data: Any) -> str | None:
     return match_text.group(1) if match_text else None
 
 
+def _matches_tool(msg_name: Any, short_name: str) -> bool:
+    if not isinstance(msg_name, str):
+        return False
+    return msg_name == short_name or msg_name.startswith(f"ext_supportops_order_{short_name}_")
+
+
+def _latest_turn_messages(response_data: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+    if not isinstance(response_data, dict):
+        return None, "响应体不是 JSON 对象"
+    messages = response_data.get("messages")
+    if not isinstance(messages, list):
+        return None, "响应体缺少字段 messages 或格式不是列表"
+    last_human_idx = -1
+    for idx, msg in enumerate(messages):
+        if isinstance(msg, dict) and msg.get("type") == "human":
+            last_human_idx = idx
+    turn_messages = [m for m in messages[last_human_idx + 1 :] if isinstance(m, dict)]
+    return turn_messages, None
+
+
+def _find_tool_messages(turn_messages: list[dict[str, Any]], short_name: str) -> list[dict[str, Any]]:
+    return [
+        msg
+        for msg in turn_messages
+        if msg.get("type") == "tool" and _matches_tool(msg.get("name"), short_name)
+    ]
+
+
+def _judge_query_order(
+    turn_messages: list[dict[str, Any]],
+    *,
+    expected_found: bool,
+    expected_order_id: str | None = None,
+    expected_status: str | None = None,
+) -> tuple[bool, str]:
+    tool_msgs = _find_tool_messages(turn_messages, "query_order")
+    if not tool_msgs:
+        return False, "未调用 query_order 工具（未找到对应 tool 消息）"
+    msg = tool_msgs[-1]
+    artifact = msg.get("artifact")
+    if not isinstance(artifact, dict):
+        return False, "query_order 消息缺少字段 artifact"
+    if "found" not in artifact:
+        return False, "query_order 的 artifact 缺少字段 found"
+    found = artifact.get("found")
+    if found is not expected_found:
+        return False, f"query_order artifact.found={found!r}（期望 {expected_found!r}）"
+    if expected_order_id is not None and artifact.get("order_id") != expected_order_id:
+        return False, f"query_order artifact.order_id={artifact.get('order_id')!r}（期望 {expected_order_id!r}）"
+    if expected_status is not None and artifact.get("status") != expected_status:
+        return False, f"query_order artifact.status={artifact.get('status')!r}（期望 {expected_status!r}）"
+    return True, (
+        f"已调用 query_order；artifact: found={found}, "
+        f"order_id={artifact.get('order_id')}, status={artifact.get('status')}"
+    )
+
+
+def _judge_a04(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    tool_msgs = [m for m in turn_messages if m.get("type") == "tool"]
+    ai_msgs = [m for m in turn_messages if m.get("type") == "ai"]
+    ai_text = truncate_text(str(ai_msgs[-1].get("content", "")), 200) if ai_msgs else ""
+    if tool_msgs:
+        last_tool = tool_msgs[-1]
+        tool_summary = (
+            f"工具={last_tool.get('name')} status={last_tool.get('status')} "
+            f"content={truncate_text(str(last_tool.get('content', '')), 120)}"
+        )
+    else:
+        tool_summary = "未调用工具"
+    return True, f"A04 观察（结论保持 TBD）：{tool_summary}；回复={ai_text or '（空）'}"
+
+
+def _judge_a05(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    tool_msgs = _find_tool_messages(turn_messages, "prepare_after_sales")
+    if not tool_msgs:
+        return False, "未调用 prepare_after_sales 工具（未找到对应 tool 消息）"
+    msg = tool_msgs[-1]
+    artifact = msg.get("artifact")
+    if not isinstance(artifact, dict):
+        return False, "prepare_after_sales 消息缺少字段 artifact"
+    missing = [k for k in ("action_id", "status", "revision") if k not in artifact]
+    if missing:
+        return False, f"prepare_after_sales 的 artifact 缺少字段 {', '.join(missing)}"
+    action_id = artifact.get("action_id")
+    status = artifact.get("status")
+    revision = artifact.get("revision")
+    if not action_id or status != "pending_approval" or revision != 1:
+        return False, (
+            f"prepare_after_sales artifact 不符合预期："
+            f"action_id={action_id!r}, status={status!r}, revision={revision!r}"
+        )
+    return True, f"已调用 prepare_after_sales；action_id={action_id}, status={status}, revision={revision}"
+
+
+def _judge_a06(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
+    prep_msgs = _find_tool_messages(turn_messages, "prepare_after_sales")
+    if prep_msgs:
+        msg = prep_msgs[-1]
+        artifact = msg.get("artifact")
+        if not isinstance(artifact, dict):
+            return False, "prepare_after_sales 消息缺少字段 artifact"
+        if artifact.get("action_id") or artifact.get("status") == "pending_approval":
+            return False, f"意外写入 SQLite：action_id={artifact.get('action_id')!r}"
+        if "error" not in artifact:
+            return False, "prepare_after_sales 的 artifact 缺少字段 error"
+        if artifact.get("error") != "order_not_found":
+            return False, f"prepare_after_sales artifact.error={artifact.get('error')!r}（期望 'order_not_found'）"
+        return True, "未写入 SQLite；已调用 prepare_after_sales，artifact.error=order_not_found"
+
+    query_msgs = _find_tool_messages(turn_messages, "query_order")
+    if query_msgs:
+        artifact = query_msgs[-1].get("artifact")
+        if isinstance(artifact, dict) and artifact.get("found") is False:
+            return True, "未调用 prepare_after_sales（未写入 SQLite）；已调用 query_order 返回 found=False"
+        return False, f"未调用 prepare_after_sales，且 query_order 结果异常：{artifact!r}"
+    return False, "未调用 prepare_after_sales 或 query_order 工具"
+
+
+_CHAT_JUDGES = {
+    "A01": lambda msgs: _judge_query_order(
+        msgs, expected_found=True, expected_order_id="ORD-1001", expected_status="配送中"
+    ),
+    "A02": lambda msgs: _judge_query_order(
+        msgs, expected_found=True, expected_order_id="ORD-1002", expected_status="已签收"
+    ),
+    "A03": lambda msgs: _judge_query_order(msgs, expected_found=False),
+    "A04": _judge_a04,
+    "A05": _judge_a05,
+    "A06": _judge_a06,
+}
+
+
+def judge_chat_case(case_id: str, response_data: Any) -> tuple[bool, str]:
+    """根据聊天响应中的工具调用与 artifact 判定是否通过，返回 (passed, 证据摘要)。"""
+    turn_messages, error = _latest_turn_messages(response_data)
+    if error is not None or turn_messages is None:
+        return False, error or "缺少字段 messages"
+    judge_fn = _CHAT_JUDGES.get(case_id)
+    if judge_fn is None:
+        return False, f"未定义聊天判定规则的用例：{case_id}"
+    return judge_fn(turn_messages)
+
+
 def build_headers(token: str, csrf_token: str | None, cookie: str | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if token:
@@ -309,21 +452,27 @@ def evaluate_live(cfg: dict[str, str], action_id: str | None) -> list[dict[str, 
             payload = build_chat_payload(case.prompt or "")
             resp = requests.post(url, headers=headers, json=payload, timeout=DEFAULT_TIMEOUT_SECONDS)
             elapsed = perf_counter() - started
-            preview = truncate_text(resp.text)
-            conclusion = "TBD" if case.case_id == "A04" else ("pass" if resp.ok else "fail")
-            if case.case_id == "A05" and resp.ok:
+            if not resp.ok:
+                preview = f"HTTP {resp.status_code}: {truncate_text(resp.text)}"
+                conclusion = "fail"
+            else:
                 try:
-                    extracted = extract_action_id(resp.json())
-                    if extracted:
-                        current_action_id = extracted
+                    response_data = resp.json()
                 except ValueError:
-                    pass
+                    passed, preview = False, f"响应不是合法 JSON：{truncate_text(resp.text)}"
+                else:
+                    passed, preview = judge_chat_case(case.case_id, response_data)
+                    if case.case_id == "A05" and passed:
+                        extracted = extract_action_id(response_data)
+                        if extracted:
+                            current_action_id = extracted
+                conclusion = "TBD" if case.case_id == "A04" else ("pass" if passed else "fail")
             results.append({
                 "id": case.case_id,
                 "scenario": case.scenario,
                 "expected": case.expected,
                 "http_status": resp.status_code,
-                "actual_preview": preview,
+                "actual_preview": truncate_text(preview),
                 "elapsed_seconds": round(elapsed, 3),
                 "conclusion": conclusion,
             })
