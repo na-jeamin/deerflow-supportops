@@ -43,4 +43,6 @@
 
 核心实现见[订单工具源码](extensions/supportops/supportops_extension/__init__.py)，离线用例见[订单工具测试](backend/tests/test_supportops_order_tool.py)。
 
+可用评估脚本复查订单查询、售后登记、审批和重复建单等 15 个场景。见[评估用例](extensions/supportops/EVAL-CASES.md)和[运行手册](extensions/supportops/RUN-EVAL.md)。
+
 上游基线为 DeerFlow [`c6a399369`](https://github.com/bytedance/deer-flow/commit/c6a39936954d103f24293bfc165cb40e68d44464)。本仓库保留上游代码归属和 [MIT 许可证](LICENSE)。

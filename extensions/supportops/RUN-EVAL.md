@@ -67,6 +67,7 @@ $env:DEERFLOW_THREAD_ID = "<新建会话的 thread_id>"
 ```
 
 - 默认将 `A07`–`A15` 串联在 `A05` 生成的 `action_id` 上。如果 `A05` 未能提取到 `action_id`，可在手动登记一条第 1 版 `pending_approval` 申请后追加 `--action-id <第1版申请编号>` 重新运行；否则 `A07`–`A15` 会跳过并记为 `TBD`。
+- 如果前置用例失败，依赖它的用例会跳过并记为 `TBD`。A13 会在第 2 版审批确认失败时记录原因并停止建单。A13 通过要求响应包含正确的申请编号、成功状态、第 2 版和有效工单编号。A14 还要核对返回的工单编号与 A13 相同。
 - 可选 `--output-dir <输出目录>` 指定结果保存路径，默认保存在 `extensions\supportops\`。
 
 ## 步骤 7：看结果、填回 EVAL-CASES.md
@@ -75,10 +76,12 @@ $env:DEERFLOW_THREAD_ID = "<新建会话的 thread_id>"
 2. 逐行核对每条用例的 `http_status`、`actual_preview`（含聊天用例解析出的工具调用与 `artifact` 摘要）与 `conclusion`。
 3. 仅根据本次实测输出，将 [EVAL-CASES.md](EVAL-CASES.md) 中对应行的「实际结果」与「结论」从 `待运行` / `TBD` 更新为实测事实。
 
+脚本根据工具消息和接口响应判定。需要确认用户看到的回复、SQLite 中是否落库或是否只有一条工单时，应结合聊天记录或数据库查询。A04 记录模型如何处理非法订单号，留给人工查看。
+
 ## 常见失败
 
-- **HTTP 401**：`access_token` 已过期或未带有效登录凭证，重新登录后更新 `DEERFLOW_TOKEN` 与 `DEERFLOW_COOKIE`。
+- **HTTP 401**：`access_token` 已过期或缺少有效会话，重新登录后更新 `DEERFLOW_COOKIE`。如果单独设置了 `DEERFLOW_CSRF_TOKEN`，也更新为同一会话的值。
 - **HTTP 403**：缺少 `X-CSRF-Token` 请求头，或未通过浏览器 Cookie 发送会话（仅带请求头认证会被审批路由拦截），确认 `DEERFLOW_CSRF_TOKEN` 与 `DEERFLOW_COOKIE` 中的 `csrf_token` 一致且均已设置。
-- **`A07`–`A15` 全线 409**：通常是复用了已改版/已批准/已建单的旧 `--action-id`，或 `A05` 本次未提取到新 `action_id` 却沿用了旧编号；新建一条第 1 版 `pending_approval` 申请后重跑即可。
+- **A07 审批返回 409，后续接口用例跳过**：核对 `--action-id` 对应申请是否为本人发起、内容匹配并仍处于第 1 版待审批状态。
 - **`A07`–`A15` 全部显示 `TBD`（跳过）**：`A05` 未成功创建或提取出 `action_id`，且未传入 `--action-id`。
 - **聊天用例返回 `fail` 且摘要提示未调用工具**：说明 Gateway 返回了 HTTP 200 但模型未调用 `query_order` / `prepare_after_sales` 或 `artifact` 字段不符合预期，按 `actual_preview` 中的缺失字段与 Gateway 日志排查。

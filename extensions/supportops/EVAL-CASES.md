@@ -6,6 +6,8 @@
 
 > 注：本文件仅记录静态核对得到的期望行为与源码依据；实际运行与结果填充待用户在本地服务启动后执行 `run_agent_eval.py`。实际运行方法见 [RUN-EVAL.md](RUN-EVAL.md)。
 
+脚本记录工具结果及接口响应。表中的最终回复、数据库写入和工单数量需结合聊天记录或 SQLite 核验。
+
 | ID | 场景 | 输入 | 期望结果 | 期望依据（文件:行号） | 实际结果 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- |
 | A01 | 查询存在订单 | 聊天："请查询演示订单 ORD-1001 的状态" | 调用 `query_order`；返回 `found=True`、`order_id=ORD-1001`、`status=配送中`、`product=演示测绘设备`、`after_sales=可申请物流查询`，不创建工单 | `extensions/supportops/supportops_extension/__init__.py:19-30,61-92`；`backend/tests/test_supportops_order_tool.py:116-159` | 待运行 | TBD |

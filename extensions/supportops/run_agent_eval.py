@@ -1,4 +1,4 @@
-"""SupportOps Agent 15 项任务评估脚本（只写不跑；支持 --dry-run 离线预览请求）。
+"""SupportOps Agent 15 项任务评估脚本，支持 --dry-run 离线预览请求。
 
 设计说明：
 - 用例直接内置为 Python 列表 EVAL_CASES（与 EVAL-CASES.md 一一对应），
@@ -6,7 +6,8 @@
 - 认证信息全部从环境变量读取，不在脚本内硬编码任何账号、密码、Cookie 或 Token。
   环境变量：
   - DEERFLOW_BASE_URL：Gateway 地址（如 http://127.0.0.1:8003）
-  - DEERFLOW_TOKEN：Bearer Token 或会话凭证（若走会话接口，可配合 DEERFLOW_CSRF_TOKEN / DEERFLOW_COOKIE）
+  - DEERFLOW_COOKIE：浏览器会话 Cookie，跑完整套评估需带 CSRF 校验码
+  - DEERFLOW_TOKEN：兼容单独传入会话令牌或 PAT，PAT 仅适用于接受 PAT 的接口
   - DEERFLOW_THREAD_ID：聊天评估使用的已有线程 ID
 """
 
@@ -28,6 +29,13 @@ import requests
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_TIMEOUT_SECONDS = 90
 MAX_RESPONSE_PREVIEW_CHARS = 400
+REVISED_REASON = "商品损坏"
+REVISION_2_APPROVAL = {
+    "order_id": "ORD-1001",
+    "reason": REVISED_REASON,
+    "decision": "approve",
+    "revision": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -134,7 +142,7 @@ EVAL_CASES: list[EvalCase] = [
         scenario="批准后修改原因",
         kind="api",
         endpoint_suffix="/revision",
-        body_template={"reason": "商品损坏", "revision": 1},
+        body_template={"reason": REVISED_REASON, "revision": 1},
         expected_status_code=200,
         expected="HTTP 200，revision 升至 2，status 重置为 pending_approval",
     ),
@@ -145,7 +153,7 @@ EVAL_CASES: list[EvalCase] = [
         endpoint_suffix="/decision",
         body_template={
             "order_id": "ORD-1001",
-            "reason": "商品损坏",
+            "reason": REVISED_REASON,
             "decision": "approve",
             "revision": 1,
         },
@@ -191,6 +199,17 @@ EVAL_CASES: list[EvalCase] = [
     ),
 ]
 
+API_PREREQUISITES = {
+    "A08": "A07",
+    "A09": "A07",
+    "A10": "A07",
+    "A11": "A10",
+    "A12": "A10",
+    "A13": "A10",
+    "A14": "A13",
+    "A15": "A13",
+}
+
 
 def truncate_text(text: str, limit: int = MAX_RESPONSE_PREVIEW_CHARS) -> str:
     compact = " ".join(text.split())
@@ -220,7 +239,9 @@ def extract_action_id(response_data: Any) -> str | None:
         artifact = msg.get("artifact")
         if isinstance(artifact, dict):
             action_id = artifact.get("action_id")
-            if isinstance(action_id, str) and re.fullmatch(r"[0-9a-fA-F]{32}", action_id):
+            if isinstance(action_id, str) and re.fullmatch(
+                r"[0-9a-fA-F]{32}", action_id
+            ):
                 return action_id
     return None
 
@@ -228,10 +249,14 @@ def extract_action_id(response_data: Any) -> str | None:
 def _matches_tool(msg_name: Any, short_name: str) -> bool:
     if not isinstance(msg_name, str):
         return False
-    return msg_name == short_name or msg_name.startswith(f"ext_supportops_order_{short_name}_")
+    return msg_name == short_name or msg_name.startswith(
+        f"ext_supportops_order_{short_name}_"
+    )
 
 
-def _latest_turn_messages(response_data: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+def _latest_turn_messages(
+    response_data: Any,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
     if not isinstance(response_data, dict):
         return None, "响应体不是 JSON 对象"
     messages = response_data.get("messages")
@@ -245,7 +270,9 @@ def _latest_turn_messages(response_data: Any) -> tuple[list[dict[str, Any]] | No
     return turn_messages, None
 
 
-def _find_tool_messages(turn_messages: list[dict[str, Any]], short_name: str) -> list[dict[str, Any]]:
+def _find_tool_messages(
+    turn_messages: list[dict[str, Any]], short_name: str
+) -> list[dict[str, Any]]:
     return [
         msg
         for msg in turn_messages
@@ -265,7 +292,10 @@ def _judge_query_order(
         return False, "未调用 query_order 工具（未找到对应 tool 消息）"
     msg = tool_msgs[-1]
     if msg.get("status") == "error":
-        return False, f"query_order 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}"
+        return (
+            False,
+            f"query_order 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}",
+        )
     artifact = msg.get("artifact")
     if not isinstance(artifact, dict):
         return False, "query_order 消息缺少字段 artifact"
@@ -275,9 +305,15 @@ def _judge_query_order(
     if found is not expected_found:
         return False, f"query_order artifact.found={found!r}（期望 {expected_found!r}）"
     if expected_order_id is not None and artifact.get("order_id") != expected_order_id:
-        return False, f"query_order artifact.order_id={artifact.get('order_id')!r}（期望 {expected_order_id!r}）"
+        return (
+            False,
+            f"query_order artifact.order_id={artifact.get('order_id')!r}（期望 {expected_order_id!r}）",
+        )
     if expected_status is not None and artifact.get("status") != expected_status:
-        return False, f"query_order artifact.status={artifact.get('status')!r}（期望 {expected_status!r}）"
+        return (
+            False,
+            f"query_order artifact.status={artifact.get('status')!r}（期望 {expected_status!r}）",
+        )
     return True, (
         f"已调用 query_order；artifact: found={found}, "
         f"order_id={artifact.get('order_id')}, status={artifact.get('status')}"
@@ -305,7 +341,10 @@ def _judge_a05(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
         return False, "未调用 prepare_after_sales 工具（未找到对应 tool 消息）"
     msg = tool_msgs[-1]
     if msg.get("status") == "error":
-        return False, f"query_order 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}"
+        return (
+            False,
+            f"prepare_after_sales 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}",
+        )
     artifact = msg.get("artifact")
     if not isinstance(artifact, dict):
         return False, "prepare_after_sales 消息缺少字段 artifact"
@@ -315,46 +354,71 @@ def _judge_a05(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
     action_id = artifact.get("action_id")
     status = artifact.get("status")
     revision = artifact.get("revision")
-    if not action_id or status != "pending_approval" or revision != 1:
+    if (
+        not isinstance(action_id, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{32}", action_id)
+        or status != "pending_approval"
+        or type(revision) is not int
+        or revision != 1
+    ):
         return False, (
             f"prepare_after_sales artifact 不符合预期："
             f"action_id={action_id!r}, status={status!r}, revision={revision!r}"
         )
-    return True, f"已调用 prepare_after_sales；action_id={action_id}, status={status}, revision={revision}"
+    return (
+        True,
+        f"已调用 prepare_after_sales；action_id={action_id}, status={status}, revision={revision}",
+    )
 
 
 def _judge_a06(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
     prep_msgs = _find_tool_messages(turn_messages, "prepare_after_sales")
     if prep_msgs:
         msg = prep_msgs[-1]
+        if msg.get("status") == "error":
+            return False, "prepare_after_sales 工具执行报错，未获得业务拒绝结果"
         artifact = msg.get("artifact")
         if not isinstance(artifact, dict):
             return False, "prepare_after_sales 消息缺少字段 artifact"
         if artifact.get("action_id") or artifact.get("status") == "pending_approval":
-            return False, f"意外写入 SQLite：action_id={artifact.get('action_id')!r}"
+            return (
+                False,
+                f"工具意外返回申请记录：action_id={artifact.get('action_id')!r}",
+            )
         if "error" not in artifact:
             return False, "prepare_after_sales 的 artifact 缺少字段 error"
         if artifact.get("error") != "order_not_found":
-            return False, f"prepare_after_sales artifact.error={artifact.get('error')!r}（期望 'order_not_found'）"
-        return True, "未写入 SQLite；已调用 prepare_after_sales，artifact.error=order_not_found"
+            return (
+                False,
+                f"prepare_after_sales artifact.error={artifact.get('error')!r}（期望 'order_not_found'）",
+            )
+        return True, "售后工具返回 order_not_found，响应中无申请编号"
 
     query_msgs = _find_tool_messages(turn_messages, "query_order")
     if query_msgs:
-        artifact = query_msgs[-1].get("artifact")
-        if isinstance(artifact, dict) and artifact.get("found") is False:
-            return True, "未调用 prepare_after_sales（未写入 SQLite）；已调用 query_order 返回 found=False"
-        return False, f"未调用 prepare_after_sales，且 query_order 结果异常：{artifact!r}"
+        passed, preview = _judge_query_order(
+            turn_messages, expected_found=False, expected_order_id="ORD-9999"
+        )
+        return passed, f"未调用 prepare_after_sales。{preview}"
     return False, "未调用 prepare_after_sales 或 query_order 工具"
 
 
 _CHAT_JUDGES = {
     "A01": lambda msgs: _judge_query_order(
-        msgs, expected_found=True, expected_order_id="ORD-1001", expected_status="配送中"
+        msgs,
+        expected_found=True,
+        expected_order_id="ORD-1001",
+        expected_status="配送中",
     ),
     "A02": lambda msgs: _judge_query_order(
-        msgs, expected_found=True, expected_order_id="ORD-1002", expected_status="已签收"
+        msgs,
+        expected_found=True,
+        expected_order_id="ORD-1002",
+        expected_status="已签收",
     ),
-    "A03": lambda msgs: _judge_query_order(msgs, expected_found=False),
+    "A03": lambda msgs: _judge_query_order(
+        msgs, expected_found=False, expected_order_id="ORD-9999"
+    ),
     "A04": _judge_a04,
     "A05": _judge_a05,
     "A06": _judge_a06,
@@ -380,7 +444,9 @@ def _extract_cookie_value(cookie_header: str, name: str) -> str | None:
     return None
 
 
-def build_headers(token: str, csrf_token: str | None, cookie: str | None) -> dict[str, str]:
+def build_headers(
+    token: str, csrf_token: str | None, cookie: str | None
+) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if cookie:
         # AuthMiddleware 对 Authorization 头执行严格的 PAT(dfp_) 优先校验，
@@ -445,7 +511,9 @@ def run_dry_run(cfg: dict[str, str], action_id_placeholder: str) -> None:
     print("=== SupportOps Eval Dry-Run（不会发送任何网络请求）===")
     print(f"Base URL : {cfg['base_url']}")
     print(f"Thread ID: {cfg['thread_id']}")
-    print("说明：A07-A15 接口在服务端要求浏览器 session + X-CSRF-Token；实际运行需在环境中提供会话凭证。\n")
+    print(
+        "说明：A07-A15 接口在服务端要求浏览器 session + X-CSRF-Token；实际运行需在环境中提供会话凭证。\n"
+    )
 
     for case in EVAL_CASES:
         if case.kind == "chat":
@@ -454,14 +522,8 @@ def run_dry_run(cfg: dict[str, str], action_id_placeholder: str) -> None:
         else:
             if case.requires_pre_approve_rev2:
                 pre_url = f"{cfg['base_url']}/api/supportops/actions/{action_id_placeholder}/decision"
-                pre_body = {
-                    "order_id": "ORD-1001",
-                    "reason": "商品损坏",
-                    "decision": "approve",
-                    "revision": 2,
-                }
                 print(f"[前置步骤 -> {case.case_id}] POST {pre_url}")
-                print(f"  Body: {json.dumps(pre_body, ensure_ascii=False)}")
+                print(f"  Body: {json.dumps(REVISION_2_APPROVAL, ensure_ascii=False)}")
             url = f"{cfg['base_url']}/api/supportops/actions/{action_id_placeholder}{case.endpoint_suffix}"
             payload = case.body_template or {}
 
@@ -471,18 +533,39 @@ def run_dry_run(cfg: dict[str, str], action_id_placeholder: str) -> None:
         print(f"  期望: {case.expected}")
 
 
+def _check_response_fields(
+    response: requests.Response, expected: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
+    try:
+        body = response.json()
+    except ValueError:
+        return None, "响应不是合法 JSON"
+    if not isinstance(body, dict):
+        return None, "响应体不是 JSON 对象"
+    for field, value in expected.items():
+        actual = body.get(field)
+        if type(actual) is not type(value) or actual != value:
+            return None, f"{field}={actual!r}（期望 {value!r}）"
+    return body, ""
+
+
 def evaluate_live(cfg: dict[str, str], action_id: str | None) -> list[dict[str, Any]]:
-    headers = build_headers(cfg["token"], cfg["csrf_token"] or None, cfg["cookie"] or None)
+    headers = build_headers(
+        cfg["token"], cfg["csrf_token"] or None, cfg["cookie"] or None
+    )
     results: list[dict[str, Any]] = []
     current_action_id = action_id
     ticket_id_a13: str | None = None
+    passed_api_cases: set[str] = set()
 
     for case in EVAL_CASES:
         started = perf_counter()
         if case.kind == "chat":
             url = f"{cfg['base_url']}/api/threads/{cfg['thread_id']}/runs/wait"
             payload = build_chat_payload(case.prompt or "")
-            resp = requests.post(url, headers=headers, json=payload, timeout=DEFAULT_TIMEOUT_SECONDS)
+            resp = requests.post(
+                url, headers=headers, json=payload, timeout=DEFAULT_TIMEOUT_SECONDS
+            )
             elapsed = perf_counter() - started
             if not resp.ok:
                 preview = f"HTTP {resp.status_code}: {truncate_text(resp.text)}"
@@ -491,73 +574,135 @@ def evaluate_live(cfg: dict[str, str], action_id: str | None) -> list[dict[str, 
                 try:
                     response_data = resp.json()
                 except ValueError:
-                    passed, preview = False, f"响应不是合法 JSON：{truncate_text(resp.text)}"
+                    passed, preview = (
+                        False,
+                        f"响应不是合法 JSON：{truncate_text(resp.text)}",
+                    )
                 else:
                     passed, preview = judge_chat_case(case.case_id, response_data)
                     if case.case_id == "A05" and passed:
                         extracted = extract_action_id(response_data)
                         if extracted:
                             current_action_id = extracted
-                conclusion = "TBD" if case.case_id == "A04" else ("pass" if passed else "fail")
-            results.append({
-                "id": case.case_id,
-                "scenario": case.scenario,
-                "expected": case.expected,
-                "http_status": resp.status_code,
-                "actual_preview": truncate_text(preview),
-                "elapsed_seconds": round(elapsed, 3),
-                "conclusion": conclusion,
-            })
+                conclusion = (
+                    ("TBD" if case.case_id == "A04" else "pass") if passed else "fail"
+                )
+            results.append(
+                {
+                    "id": case.case_id,
+                    "scenario": case.scenario,
+                    "expected": case.expected,
+                    "http_status": resp.status_code,
+                    "actual_preview": truncate_text(preview),
+                    "elapsed_seconds": round(elapsed, 3),
+                    "conclusion": conclusion,
+                }
+            )
             continue
 
+        prerequisite = API_PREREQUISITES.get(case.case_id)
+        skip_reason = None
         if not current_action_id:
-            results.append({
-                "id": case.case_id,
-                "scenario": case.scenario,
-                "expected": case.expected,
-                "http_status": None,
-                "actual_preview": "跳过：未从 A05 获取到 action_id，也未传入 --action-id",
-                "elapsed_seconds": 0.0,
-                "conclusion": "TBD",
-            })
+            skip_reason = "未从 A05 获取到 action_id，也未传入 --action-id"
+        elif prerequisite and prerequisite not in passed_api_cases:
+            skip_reason = f"前置用例 {prerequisite} 未通过"
+        if skip_reason:
+            results.append(
+                {
+                    "id": case.case_id,
+                    "scenario": case.scenario,
+                    "expected": case.expected,
+                    "http_status": None,
+                    "actual_preview": f"跳过：{skip_reason}",
+                    "elapsed_seconds": 0.0,
+                    "conclusion": "TBD",
+                }
+            )
             continue
 
         if case.requires_pre_approve_rev2:
-            pre_url = f"{cfg['base_url']}/api/supportops/actions/{current_action_id}/decision"
-            pre_body = {
-                "order_id": "ORD-1001",
-                "reason": "商品损坏",
-                "decision": "approve",
-                "revision": 2,
-            }
-            requests.post(pre_url, headers=headers, json=pre_body, timeout=DEFAULT_TIMEOUT_SECONDS)
+            pre_url = (
+                f"{cfg['base_url']}/api/supportops/actions/{current_action_id}/decision"
+            )
+            approval = requests.post(
+                pre_url,
+                headers=headers,
+                json=REVISION_2_APPROVAL,
+                timeout=DEFAULT_TIMEOUT_SECONDS,
+            )
+            if approval.status_code == 200:
+                _, approval_error = _check_response_fields(
+                    approval,
+                    {
+                        "action_id": current_action_id,
+                        "status": "approved",
+                        "revision": 2,
+                    },
+                )
+            else:
+                approval_error = truncate_text(approval.text)
+            if approval.status_code != 200 or approval_error:
+                results.append(
+                    {
+                        "id": case.case_id,
+                        "scenario": case.scenario,
+                        "expected": case.expected,
+                        "http_status": None,
+                        "actual_preview": f"第 2 版审批验证失败（HTTP {approval.status_code}）：{approval_error}",
+                        "elapsed_seconds": round(perf_counter() - started, 3),
+                        "conclusion": "fail",
+                    }
+                )
+                continue
 
         url = f"{cfg['base_url']}/api/supportops/actions/{current_action_id}{case.endpoint_suffix}"
         resp = requests.post(
-            url, headers=headers, json=case.body_template or {}, timeout=DEFAULT_TIMEOUT_SECONDS
+            url,
+            headers=headers,
+            json=case.body_template or {},
+            timeout=DEFAULT_TIMEOUT_SECONDS,
         )
         elapsed = perf_counter() - started
         preview = truncate_text(resp.text)
         passed = resp.status_code == case.expected_status_code
-        if case.case_id == "A13" and passed:
-            try:
-                ticket_id_a13 = resp.json().get("ticket_id")
-            except ValueError:
-                pass
-        if case.case_id == "A14" and passed and ticket_id_a13:
-            try:
-                passed = resp.json().get("ticket_id") == ticket_id_a13
-            except ValueError:
+        expected_fields = {
+            "A07": {"status": "approved", "revision": 1},
+            "A10": {
+                "status": "pending_approval",
+                "revision": 2,
+                "reason": REVISED_REASON,
+            },
+            "A13": {"status": "succeeded", "revision": 2},
+            "A14": {"status": "succeeded", "revision": 2, "ticket_id": ticket_id_a13},
+        }.get(case.case_id)
+        if passed and expected_fields is not None:
+            body, error = _check_response_fields(
+                resp, {"action_id": current_action_id, **expected_fields}
+            )
+            if body is not None and case.case_id == "A13":
+                ticket_id = body.get("ticket_id")
+                if isinstance(ticket_id, str) and re.fullmatch(
+                    r"[0-9a-fA-F]{32}", ticket_id
+                ):
+                    ticket_id_a13 = ticket_id
+                else:
+                    error = "首次建单响应缺少有效工单编号"
+            if error:
                 passed = False
-        results.append({
-            "id": case.case_id,
-            "scenario": case.scenario,
-            "expected": case.expected,
-            "http_status": resp.status_code,
-            "actual_preview": preview,
-            "elapsed_seconds": round(elapsed, 3),
-            "conclusion": "pass" if passed else "fail",
-        })
+                preview = truncate_text(f"{error}。响应：{preview}")
+        if passed:
+            passed_api_cases.add(case.case_id)
+        results.append(
+            {
+                "id": case.case_id,
+                "scenario": case.scenario,
+                "expected": case.expected,
+                "http_status": resp.status_code,
+                "actual_preview": preview,
+                "elapsed_seconds": round(elapsed, 3),
+                "conclusion": "pass" if passed else "fail",
+            }
+        )
     return results
 
 
@@ -566,7 +711,9 @@ def save_outputs(results: list[dict[str, Any]], output_dir: Path) -> tuple[Path,
     json_path = output_dir / f"EVAL-RESULTS-{stamp}.json"
     md_path = output_dir / f"EVAL-RESULTS-{stamp}.md"
 
-    json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     lines = [
         f"# SupportOps Agent 评估结果（{stamp}）",
         "",
@@ -585,9 +732,15 @@ def save_outputs(results: list[dict[str, Any]], output_dir: Path) -> tuple[Path,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SupportOps Agent 15 项任务评估脚本。")
-    parser.add_argument("--dry-run", action="store_true", help="只打印将要发送的请求，不联网。")
-    parser.add_argument("--action-id", help="可选：手动指定已有第 1 版 pending_approval 的 action_id。")
-    parser.add_argument("--output-dir", type=Path, default=SCRIPT_DIR, help="结果报告输出目录。")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="只打印将要发送的请求，不联网。"
+    )
+    parser.add_argument(
+        "--action-id", help="可选：手动指定已有第 1 版 pending_approval 的 action_id。"
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=SCRIPT_DIR, help="结果报告输出目录。"
+    )
     args = parser.parse_args()
 
     cfg = load_runtime_config(args.dry_run)

@@ -29,4 +29,6 @@ DeerFlow provides model integration, the agent loop, message history, and tool d
 
 `ORD-1001` currently returns `配送中` (in transit). A live retest confirmed that the tool and model both reflected the change from `已发货` (shipped). `ORD-9999` returns `found: false`, and the model reported that the demo order was not found.
 
+The evaluation script covers 15 scenarios including order lookup, approval, and ticket retries. See the [evaluation cases](extensions/supportops/EVAL-CASES.md) and [run guide](extensions/supportops/RUN-EVAL.md).
+
 See the [tool implementation](extensions/supportops/supportops_extension/__init__.py) and [offline tests](backend/tests/test_supportops_order_tool.py). The upstream base is [DeerFlow `c6a399369`](https://github.com/bytedance/deer-flow/commit/c6a39936954d103f24293bfc165cb40e68d44464); upstream attribution and the [MIT license](LICENSE) are retained.

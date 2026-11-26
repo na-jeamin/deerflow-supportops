@@ -16,6 +16,7 @@ for path in (SUPPORT_OPS_DIR, BACKEND_DIR):
         sys.path.insert(0, str(path))
 
 from run_agent_eval import (  # noqa: E402
+    EVAL_CASES,
     build_headers,
     evaluate_live,
     extract_action_id,
@@ -85,7 +86,9 @@ class TestJudgeChatCase(unittest.TestCase):
         self.assertIn("action_id", summary_a05)
 
     def test_malformed_response_with_missing_fields_fails_with_field_name(self) -> None:
-        ok_no_messages, summary_no_messages = judge_chat_case("A01", {"status": "success"})
+        ok_no_messages, summary_no_messages = judge_chat_case(
+            "A01", {"status": "success"}
+        )
         self.assertFalse(ok_no_messages)
         self.assertIn("messages", summary_no_messages)
 
@@ -100,7 +103,9 @@ class TestJudgeChatCase(unittest.TestCase):
         self.assertFalse(ok_no_artifact)
         self.assertIn("artifact", summary_no_artifact)
 
-    def test_multi_turn_history_is_isolated_for_judge_and_extract_action_id(self) -> None:
+    def test_multi_turn_history_is_isolated_for_judge_and_extract_action_id(
+        self,
+    ) -> None:
         old_id = "11111111111111111111111111111111"
         new_id = "22222222222222222222222222222222"
         # 上一轮成功，但当前轮（最后一条 human 之后）没有调用任何工具。
@@ -111,13 +116,21 @@ class TestJudgeChatCase(unittest.TestCase):
                     "type": "tool",
                     "name": "ext_supportops_order_query_order_822d9a950536",
                     "status": "success",
-                    "artifact": {"found": True, "order_id": "ORD-1001", "status": "配送中"},
+                    "artifact": {
+                        "found": True,
+                        "order_id": "ORD-1001",
+                        "status": "配送中",
+                    },
                 },
                 {
                     "type": "tool",
                     "name": "ext_supportops_order_prepare_after_sales_00a95e091841",
                     "status": "success",
-                    "artifact": {"action_id": old_id, "status": "pending_approval", "revision": 1},
+                    "artifact": {
+                        "action_id": old_id,
+                        "status": "pending_approval",
+                        "revision": 1,
+                    },
                 },
                 {"type": "human", "content": "当前轮"},
                 {"type": "ai", "content": "没有调用工具", "tool_calls": []},
@@ -135,7 +148,11 @@ class TestJudgeChatCase(unittest.TestCase):
                     "type": "tool",
                     "name": "ext_supportops_order_prepare_after_sales_00a95e091841",
                     "status": "success",
-                    "artifact": {"action_id": new_id, "status": "pending_approval", "revision": 1},
+                    "artifact": {
+                        "action_id": new_id,
+                        "status": "pending_approval",
+                        "revision": 1,
+                    },
                 },
             ]
         }
@@ -151,7 +168,11 @@ class TestJudgeChatCase(unittest.TestCase):
                     "type": "tool",
                     "name": "query_order",
                     "status": "success",
-                    "artifact": {"found": True, "order_id": "ORD-1002", "status": "已签收"},
+                    "artifact": {
+                        "found": True,
+                        "order_id": "ORD-1002",
+                        "status": "已签收",
+                    },
                 },
             ]
         }
@@ -183,20 +204,28 @@ class TestJudgeChatCase(unittest.TestCase):
         # A06 模型先查单发现 found=False 后直接停止，未写入 SQLite，也应判通过。
         self.assertTrue(judge_chat_case("A06", resp_a03)[0])
 
-    def test_build_headers_avoids_bearer_conflict_and_passes_csrf_middleware(self) -> None:
+    def test_build_headers_avoids_bearer_conflict_and_passes_csrf_middleware(
+        self,
+    ) -> None:
         from fastapi import FastAPI
         from starlette.testclient import TestClient
 
         from app.gateway.csrf_middleware import CSRFMiddleware
 
         # 即使同时存在 cookie 和非 dfp_ 的 token，也绝不能发 Authorization: Bearer。
-        headers = build_headers("jwt.placeholder.value", "csrf-123", "access_token=jwt.placeholder.value; csrf_token=csrf-123")
+        headers = build_headers(
+            "jwt.placeholder.value",
+            "csrf-123",
+            "access_token=jwt.placeholder.value; csrf_token=csrf-123",
+        )
         self.assertNotIn("Authorization", headers)
         self.assertEqual(headers["X-CSRF-Token"], "csrf-123")
         self.assertIn("access_token=", headers["Cookie"])
 
         # 若未传 csrf_token 参数但 cookie 里含 csrf_token=，应自动补齐 X-CSRF-Token。
-        headers_auto_csrf = build_headers("", None, "access_token=jwt.placeholder; csrf_token=csrf-auto")
+        headers_auto_csrf = build_headers(
+            "", None, "access_token=jwt.placeholder; csrf_token=csrf-auto"
+        )
         self.assertEqual(headers_auto_csrf["X-CSRF-Token"], "csrf-auto")
 
         # 只有真 PAT(dfp_) 且无 cookie 时才发 Authorization: Bearer。
@@ -212,7 +241,9 @@ class TestJudgeChatCase(unittest.TestCase):
             return {"ok": True}
 
         with TestClient(app) as client:
-            resp = client.post("/api/supportops/actions/abc/decision", headers=headers, json={})
+            resp = client.post(
+                "/api/supportops/actions/abc/decision", headers=headers, json={}
+            )
             self.assertEqual(resp.status_code, 200)
 
         with patch.dict(
@@ -241,35 +272,148 @@ class TestJudgeChatCase(unittest.TestCase):
 
         scripted = [
             # A01
-            make_resp(200, {"messages": [{"type": "human", "content": "a01"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": True, "order_id": "ORD-1001", "status": "配送中"}}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a01"},
+                        {
+                            "type": "tool",
+                            "name": "query_order",
+                            "status": "success",
+                            "artifact": {
+                                "found": True,
+                                "order_id": "ORD-1001",
+                                "status": "配送中",
+                            },
+                        },
+                    ]
+                },
+            ),
             # A02
-            make_resp(200, {"messages": [{"type": "human", "content": "a02"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": True, "order_id": "ORD-1002", "status": "已签收"}}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a02"},
+                        {
+                            "type": "tool",
+                            "name": "query_order",
+                            "status": "success",
+                            "artifact": {
+                                "found": True,
+                                "order_id": "ORD-1002",
+                                "status": "已签收",
+                            },
+                        },
+                    ]
+                },
+            ),
             # A03
-            make_resp(200, {"messages": [{"type": "human", "content": "a03"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": False, "order_id": "ORD-9999"}}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a03"},
+                        {
+                            "type": "tool",
+                            "name": "query_order",
+                            "status": "success",
+                            "artifact": {"found": False, "order_id": "ORD-9999"},
+                        },
+                    ]
+                },
+            ),
             # A04
-            make_resp(200, {"messages": [{"type": "human", "content": "a04"}, {"type": "ai", "content": "请提供 ORD-1001 格式"}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a04"},
+                        {"type": "ai", "content": "请提供 ORD-1001 格式"},
+                    ]
+                },
+            ),
             # A05
-            make_resp(200, {"messages": [{"type": "human", "content": "a05"}, {"type": "tool", "name": "prepare_after_sales", "status": "success", "artifact": {"action_id": action_id, "status": "pending_approval", "revision": 1}}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a05"},
+                        {
+                            "type": "tool",
+                            "name": "prepare_after_sales",
+                            "status": "success",
+                            "artifact": {
+                                "action_id": action_id,
+                                "status": "pending_approval",
+                                "revision": 1,
+                            },
+                        },
+                    ]
+                },
+            ),
             # A06
-            make_resp(200, {"messages": [{"type": "human", "content": "a06"}, {"type": "tool", "name": "prepare_after_sales", "status": "success", "artifact": {"error": "order_not_found"}}]}),
+            make_resp(
+                200,
+                {
+                    "messages": [
+                        {"type": "human", "content": "a06"},
+                        {
+                            "type": "tool",
+                            "name": "prepare_after_sales",
+                            "status": "success",
+                            "artifact": {"error": "order_not_found"},
+                        },
+                    ]
+                },
+            ),
             # A07
-            make_resp(200, {"action_id": action_id, "status": "approved", "revision": 1}),
+            make_resp(
+                200, {"action_id": action_id, "status": "approved", "revision": 1}
+            ),
             # A08
             make_resp(409, {"detail": "conflict"}),
             # A09
             make_resp(409, {"detail": "content changed"}),
             # A10
-            make_resp(200, {"action_id": action_id, "status": "pending_approval", "revision": 2, "reason": "商品损坏"}),
+            make_resp(
+                200,
+                {
+                    "action_id": action_id,
+                    "status": "pending_approval",
+                    "revision": 2,
+                    "reason": "商品损坏",
+                },
+            ),
             # A11
             make_resp(409, {"detail": "stale revision"}),
             # A12
             make_resp(409, {"detail": "not approved"}),
             # A13 前置批准 rev 2
-            make_resp(200, {"action_id": action_id, "status": "approved", "revision": 2}),
+            make_resp(
+                200, {"action_id": action_id, "status": "approved", "revision": 2}
+            ),
             # A13
-            make_resp(200, {"status": "succeeded", "ticket_id": ticket_id, "revision": 2}),
+            make_resp(
+                200,
+                {
+                    "action_id": action_id,
+                    "status": "succeeded",
+                    "ticket_id": ticket_id,
+                    "revision": 2,
+                },
+            ),
             # A14
-            make_resp(200, {"status": "succeeded", "ticket_id": ticket_id, "revision": 2}),
+            make_resp(
+                200,
+                {
+                    "action_id": action_id,
+                    "status": "succeeded",
+                    "ticket_id": ticket_id,
+                    "revision": 2,
+                },
+            ),
             # A15
             make_resp(409, {"detail": "stale revision"}),
         ]
@@ -295,6 +439,82 @@ class TestJudgeChatCase(unittest.TestCase):
             md_path, json_path = save_outputs(results, Path(tmp))
             self.assertTrue(md_path.is_file())
             self.assertTrue(json_path.is_file())
+
+    def test_ticket_evaluation_requires_valid_approval_and_matching_tickets(
+        self,
+    ) -> None:
+        action_id = "a" * 32
+        ticket_id = "b" * 32
+        approval = {"action_id": action_id, "status": "approved", "revision": 2}
+        ticket = {
+            "action_id": action_id,
+            "status": "succeeded",
+            "revision": 2,
+            "ticket_id": ticket_id,
+        }
+        cases = [
+            case for case in EVAL_CASES if case.case_id in {"A07", "A10", "A13", "A14"}
+        ]
+        cfg = {
+            "base_url": "http://127.0.0.1:8003",
+            "token": "",
+            "csrf_token": "",
+            "cookie": "",
+        }
+        setup_responses = [
+            (200, {**approval, "revision": 1}),
+            (200, {**approval, "status": "pending_approval", "reason": "商品损坏"}),
+        ]
+        scenarios = [
+            ("审批冲突", [(409, {})], "fail", "TBD", "HTTP 409"),
+            ("审批返回空对象", [(200, {})], "fail", "TBD", "审批验证失败"),
+            ("首张工单为空", [(200, approval), (200, {})], "fail", "TBD", "action_id"),
+            (
+                "缺少工单编号",
+                [(200, approval), (200, {**ticket, "ticket_id": ""})],
+                "fail",
+                "TBD",
+                "缺少有效工单编号",
+            ),
+            (
+                "重试返回另一张工单",
+                [
+                    (200, approval),
+                    (200, ticket),
+                    (200, {**ticket, "ticket_id": "c" * 32}),
+                ],
+                "pass",
+                "fail",
+                "ticket_id",
+            ),
+            (
+                "重试缺少工单编号",
+                [(200, approval), (200, ticket), (200, {**ticket, "ticket_id": None})],
+                "pass",
+                "fail",
+                "ticket_id",
+            ),
+        ]
+        for name, steps, first_result, retry_result, detail in scenarios:
+            with self.subTest(name):
+                responses = [
+                    MagicMock(
+                        status_code=code, text=str(body), **{"json.return_value": body}
+                    )
+                    for code, body in [*setup_responses, *steps]
+                ]
+                with (
+                    patch("run_agent_eval.EVAL_CASES", cases),
+                    patch(
+                        "run_agent_eval.requests.post", side_effect=responses
+                    ) as post,
+                ):
+                    first, retry = evaluate_live(cfg, action_id)[-2:]
+                self.assertEqual(post.call_count, len(responses))
+                self.assertEqual(first["conclusion"], first_result)
+                self.assertEqual(retry["conclusion"], retry_result)
+                failure = first if first_result == "fail" else retry
+                self.assertIn(detail, failure["actual_preview"])
 
 
 if __name__ == "__main__":
