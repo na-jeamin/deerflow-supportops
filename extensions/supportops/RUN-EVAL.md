@@ -31,11 +31,10 @@ node .\node_modules\next\dist\bin\next dev --webpack --hostname 127.0.0.1 --port
 2. 按 `F12` 打开浏览器开发者工具，切到 **Application / 存储 → Cookies → `http://127.0.0.1:3000`**，记录两个 Cookie 值：
    - `access_token`（会话 JWT）
    - `csrf_token`（CSRF 防护令牌）
-3. `A07`–`A15` 审批与建单接口强制要求浏览器会话（`auth_source == "session"`）与 `X-CSRF-Token` 请求头；因此需要同时设置 `DEERFLOW_COOKIE` 与 `DEERFLOW_CSRF_TOKEN`：
+3. `A07`–`A15` 审批与建单接口强制要求浏览器会话（`auth_source == "session"`）与 `X-CSRF-Token` 请求头；同时 Gateway 的 `Authorization` 请求头只接收 `dfp_` 开头的 PAT，不能把浏览器 `access_token` 放进 `Authorization` 请求头。设置 `DEERFLOW_COOKIE` 与 `DEERFLOW_CSRF_TOKEN` 即可同时满足 `A01`–`A15`（若已设置 `DEERFLOW_COOKIE`，可不设 `DEERFLOW_TOKEN`）：
 
 ```powershell
 $env:DEERFLOW_BASE_URL = "http://127.0.0.1:8003"
-$env:DEERFLOW_TOKEN = "<从浏览器复制的 access_token>"
 $env:DEERFLOW_CSRF_TOKEN = "<从浏览器复制的 csrf_token>"
 $env:DEERFLOW_COOKIE = "access_token=<从浏览器复制的 access_token>; csrf_token=<从浏览器复制的 csrf_token>"
 ```

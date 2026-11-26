@@ -1,16 +1,28 @@
-"""离线单元测试：验证 run_agent_eval.judge_chat_case 不会在无工具调用或字段缺失时假通过。"""
+"""离线单元测试：验证 run_agent_eval 的聊天判定、多轮隔离、鉴权头构造与全流程串联。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 SUPPORT_OPS_DIR = Path(__file__).resolve().parents[0]
-if str(SUPPORT_OPS_DIR) not in sys.path:
-    sys.path.insert(0, str(SUPPORT_OPS_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = REPO_ROOT / "backend"
+for path in (SUPPORT_OPS_DIR, BACKEND_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from run_agent_eval import judge_chat_case  # noqa: E402
+from run_agent_eval import (  # noqa: E402
+    build_headers,
+    evaluate_live,
+    extract_action_id,
+    judge_chat_case,
+    load_runtime_config,
+    save_outputs,
+)
 
 
 class TestJudgeChatCase(unittest.TestCase):
@@ -87,6 +99,202 @@ class TestJudgeChatCase(unittest.TestCase):
         )
         self.assertFalse(ok_no_artifact)
         self.assertIn("artifact", summary_no_artifact)
+
+    def test_multi_turn_history_is_isolated_for_judge_and_extract_action_id(self) -> None:
+        old_id = "11111111111111111111111111111111"
+        new_id = "22222222222222222222222222222222"
+        # 上一轮成功，但当前轮（最后一条 human 之后）没有调用任何工具。
+        stale_turn_resp = {
+            "messages": [
+                {"type": "human", "content": "上一轮"},
+                {
+                    "type": "tool",
+                    "name": "ext_supportops_order_query_order_822d9a950536",
+                    "status": "success",
+                    "artifact": {"found": True, "order_id": "ORD-1001", "status": "配送中"},
+                },
+                {
+                    "type": "tool",
+                    "name": "ext_supportops_order_prepare_after_sales_00a95e091841",
+                    "status": "success",
+                    "artifact": {"action_id": old_id, "status": "pending_approval", "revision": 1},
+                },
+                {"type": "human", "content": "当前轮"},
+                {"type": "ai", "content": "没有调用工具", "tool_calls": []},
+            ]
+        }
+        ok_a01, _ = judge_chat_case("A01", stale_turn_resp)
+        self.assertFalse(ok_a01)
+        self.assertIsNone(extract_action_id(stale_turn_resp))
+
+        # 当前轮新建了另一个 action_id，必须返回新编号而不是旧编号。
+        updated_resp = {
+            "messages": [
+                *stale_turn_resp["messages"][:-1],
+                {
+                    "type": "tool",
+                    "name": "ext_supportops_order_prepare_after_sales_00a95e091841",
+                    "status": "success",
+                    "artifact": {"action_id": new_id, "status": "pending_approval", "revision": 1},
+                },
+            ]
+        }
+        ok_a05, _ = judge_chat_case("A05", updated_resp)
+        self.assertTrue(ok_a05)
+        self.assertEqual(extract_action_id(updated_resp), new_id)
+
+    def test_a02_a03_a04_and_a06_query_only_paths(self) -> None:
+        resp_a02 = {
+            "messages": [
+                {"type": "human", "content": "查 ORD-1002"},
+                {
+                    "type": "tool",
+                    "name": "query_order",
+                    "status": "success",
+                    "artifact": {"found": True, "order_id": "ORD-1002", "status": "已签收"},
+                },
+            ]
+        }
+        self.assertTrue(judge_chat_case("A02", resp_a02)[0])
+
+        resp_a03 = {
+            "messages": [
+                {"type": "human", "content": "查 ORD-9999"},
+                {
+                    "type": "tool",
+                    "name": "query_order",
+                    "status": "success",
+                    "artifact": {"found": False, "order_id": "ORD-9999"},
+                },
+            ]
+        }
+        self.assertTrue(judge_chat_case("A03", resp_a03)[0])
+
+        resp_a04 = {
+            "messages": [
+                {"type": "human", "content": "请查询订单 123"},
+                {"type": "ai", "content": "请提供 ORD-加4位数字 格式的订单号。"},
+            ]
+        }
+        ok_a04, summary_a04 = judge_chat_case("A04", resp_a04)
+        self.assertTrue(ok_a04)
+        self.assertIn("未调用工具", summary_a04)
+
+        # A06 模型先查单发现 found=False 后直接停止，未写入 SQLite，也应判通过。
+        self.assertTrue(judge_chat_case("A06", resp_a03)[0])
+
+    def test_build_headers_avoids_bearer_conflict_and_passes_csrf_middleware(self) -> None:
+        from fastapi import FastAPI
+        from starlette.testclient import TestClient
+
+        from app.gateway.csrf_middleware import CSRFMiddleware
+
+        # 即使同时存在 cookie 和非 dfp_ 的 token，也绝不能发 Authorization: Bearer。
+        headers = build_headers("jwt.placeholder.value", "csrf-123", "access_token=jwt.placeholder.value; csrf_token=csrf-123")
+        self.assertNotIn("Authorization", headers)
+        self.assertEqual(headers["X-CSRF-Token"], "csrf-123")
+        self.assertIn("access_token=", headers["Cookie"])
+
+        # 若未传 csrf_token 参数但 cookie 里含 csrf_token=，应自动补齐 X-CSRF-Token。
+        headers_auto_csrf = build_headers("", None, "access_token=jwt.placeholder; csrf_token=csrf-auto")
+        self.assertEqual(headers_auto_csrf["X-CSRF-Token"], "csrf-auto")
+
+        # 只有真 PAT(dfp_) 且无 cookie 时才发 Authorization: Bearer。
+        pat_headers = build_headers("dfp_example_pat", None, None)
+        self.assertEqual(pat_headers["Authorization"], "Bearer dfp_example_pat")
+
+        # 离线挂载真实 CSRFMiddleware，验证该 headers 能过双提交校验（不报 403）。
+        app = FastAPI()
+        app.add_middleware(CSRFMiddleware)
+
+        @app.post("/api/supportops/actions/abc/decision")
+        async def dummy_decision():
+            return {"ok": True}
+
+        with TestClient(app) as client:
+            resp = client.post("/api/supportops/actions/abc/decision", headers=headers, json={})
+            self.assertEqual(resp.status_code, 200)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "DEERFLOW_BASE_URL": "http://127.0.0.1:8003",
+                "DEERFLOW_THREAD_ID": "thread-1",
+                "DEERFLOW_COOKIE": "access_token=jwt; csrf_token=csrf",
+            },
+            clear=True,
+        ):
+            cfg = load_runtime_config(dry_run=False)
+            self.assertEqual(cfg["base_url"], "http://127.0.0.1:8003")
+
+    def test_evaluate_live_15_cases_pipeline_with_mocked_http(self) -> None:
+        action_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ticket_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+        def make_resp(status_code: int, payload: dict) -> MagicMock:
+            resp = MagicMock()
+            resp.status_code = status_code
+            resp.ok = 200 <= status_code < 300
+            resp.json.return_value = payload
+            resp.text = str(payload)
+            return resp
+
+        scripted = [
+            # A01
+            make_resp(200, {"messages": [{"type": "human", "content": "a01"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": True, "order_id": "ORD-1001", "status": "配送中"}}]}),
+            # A02
+            make_resp(200, {"messages": [{"type": "human", "content": "a02"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": True, "order_id": "ORD-1002", "status": "已签收"}}]}),
+            # A03
+            make_resp(200, {"messages": [{"type": "human", "content": "a03"}, {"type": "tool", "name": "query_order", "status": "success", "artifact": {"found": False, "order_id": "ORD-9999"}}]}),
+            # A04
+            make_resp(200, {"messages": [{"type": "human", "content": "a04"}, {"type": "ai", "content": "请提供 ORD-1001 格式"}]}),
+            # A05
+            make_resp(200, {"messages": [{"type": "human", "content": "a05"}, {"type": "tool", "name": "prepare_after_sales", "status": "success", "artifact": {"action_id": action_id, "status": "pending_approval", "revision": 1}}]}),
+            # A06
+            make_resp(200, {"messages": [{"type": "human", "content": "a06"}, {"type": "tool", "name": "prepare_after_sales", "status": "success", "artifact": {"error": "order_not_found"}}]}),
+            # A07
+            make_resp(200, {"action_id": action_id, "status": "approved", "revision": 1}),
+            # A08
+            make_resp(409, {"detail": "conflict"}),
+            # A09
+            make_resp(409, {"detail": "content changed"}),
+            # A10
+            make_resp(200, {"action_id": action_id, "status": "pending_approval", "revision": 2, "reason": "商品损坏"}),
+            # A11
+            make_resp(409, {"detail": "stale revision"}),
+            # A12
+            make_resp(409, {"detail": "not approved"}),
+            # A13 前置批准 rev 2
+            make_resp(200, {"action_id": action_id, "status": "approved", "revision": 2}),
+            # A13
+            make_resp(200, {"status": "succeeded", "ticket_id": ticket_id, "revision": 2}),
+            # A14
+            make_resp(200, {"status": "succeeded", "ticket_id": ticket_id, "revision": 2}),
+            # A15
+            make_resp(409, {"detail": "stale revision"}),
+        ]
+
+        cfg = {
+            "base_url": "http://127.0.0.1:8003",
+            "token": "",
+            "thread_id": "thread-1",
+            "csrf_token": "csrf-123",
+            "cookie": "access_token=jwt; csrf_token=csrf-123",
+        }
+        with patch("run_agent_eval.requests.post", side_effect=scripted) as mock_post:
+            results = evaluate_live(cfg, action_id=None)
+
+        self.assertEqual(mock_post.call_count, 16)
+        self.assertEqual(len(results), 15)
+        conclusions = {r["id"]: r["conclusion"] for r in results}
+        self.assertEqual(conclusions["A04"], "TBD")
+        for cid in [f"A{i:02d}" for i in range(1, 16) if i != 4]:
+            self.assertEqual(conclusions[cid], "pass", msg=f"{cid} failed: {results}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path, json_path = save_outputs(results, Path(tmp))
+            self.assertTrue(md_path.is_file())
+            self.assertTrue(json_path.is_file())
 
 
 if __name__ == "__main__":

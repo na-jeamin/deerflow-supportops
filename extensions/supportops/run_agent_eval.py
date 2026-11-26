@@ -208,13 +208,21 @@ def build_chat_payload(prompt: str) -> dict[str, Any]:
 
 
 def extract_action_id(response_data: Any) -> str | None:
-    """从 runs/wait 返回 JSON 中尽量提取 prepare_after_sales 创建的 action_id。"""
-    serialized = json.dumps(response_data, ensure_ascii=False)
-    match = re.search(r'"action_id"\s*:\s*"([0-9a-fA-F]{32})"', serialized)
-    if match:
-        return match.group(1)
-    match_text = re.search(r"申请编号[：:]\s*([0-9a-fA-F]{32})", serialized)
-    return match_text.group(1) if match_text else None
+    """提取**本轮** prepare_after_sales 创建的 action_id。
+
+    只扫描最后一条 human 消息之后的 tool 消息，避免同一会话的历史轮次里
+    存在旧申请时取到过期的 action_id（否则 A07-A15 会全部打在旧记录上）。
+    """
+    turn_messages, error = _latest_turn_messages(response_data)
+    if error is not None or turn_messages is None:
+        return None
+    for msg in reversed(_find_tool_messages(turn_messages, "prepare_after_sales")):
+        artifact = msg.get("artifact")
+        if isinstance(artifact, dict):
+            action_id = artifact.get("action_id")
+            if isinstance(action_id, str) and re.fullmatch(r"[0-9a-fA-F]{32}", action_id):
+                return action_id
+    return None
 
 
 def _matches_tool(msg_name: Any, short_name: str) -> bool:
@@ -256,6 +264,8 @@ def _judge_query_order(
     if not tool_msgs:
         return False, "未调用 query_order 工具（未找到对应 tool 消息）"
     msg = tool_msgs[-1]
+    if msg.get("status") == "error":
+        return False, f"query_order 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}"
     artifact = msg.get("artifact")
     if not isinstance(artifact, dict):
         return False, "query_order 消息缺少字段 artifact"
@@ -294,6 +304,8 @@ def _judge_a05(turn_messages: list[dict[str, Any]]) -> tuple[bool, str]:
     if not tool_msgs:
         return False, "未调用 prepare_after_sales 工具（未找到对应 tool 消息）"
     msg = tool_msgs[-1]
+    if msg.get("status") == "error":
+        return False, f"query_order 工具执行报错：status=error, content={truncate_text(str(msg.get('content', '')), 120)}"
     artifact = msg.get("artifact")
     if not isinstance(artifact, dict):
         return False, "prepare_after_sales 消息缺少字段 artifact"
@@ -360,14 +372,33 @@ def judge_chat_case(case_id: str, response_data: Any) -> tuple[bool, str]:
     return judge_fn(turn_messages)
 
 
+def _extract_cookie_value(cookie_header: str, name: str) -> str | None:
+    for part in cookie_header.split(";"):
+        key, sep, value = part.strip().partition("=")
+        if sep and key.strip() == name and value.strip():
+            return value.strip()
+    return None
+
+
 def build_headers(token: str, csrf_token: str | None, cookie: str | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if csrf_token:
-        headers["X-CSRF-Token"] = csrf_token
     if cookie:
+        # AuthMiddleware 对 Authorization 头执行严格的 PAT(dfp_) 优先校验，
+        # 带会话 Cookie 时绝不能同时发送 Authorization，否则会 401 或导致 A07-A15 403。
         headers["Cookie"] = cookie
+        resolved_csrf = csrf_token or _extract_cookie_value(cookie, "csrf_token")
+        if resolved_csrf:
+            headers["X-CSRF-Token"] = resolved_csrf
+    elif token:
+        if token.startswith("dfp_"):
+            headers["Authorization"] = f"Bearer {token}"
+        else:
+            # 兼容仅把浏览器 access_token JWT 填入 DEERFLOW_TOKEN 的写法，按会话 Cookie 发送。
+            cookie_parts = [f"access_token={token}"]
+            if csrf_token:
+                cookie_parts.append(f"csrf_token={csrf_token}")
+                headers["X-CSRF-Token"] = csrf_token
+            headers["Cookie"] = "; ".join(cookie_parts)
     return headers
 
 
@@ -391,11 +422,12 @@ def load_runtime_config(dry_run: bool) -> dict[str, str]:
         name
         for name, val in [
             ("DEERFLOW_BASE_URL", base_url),
-            ("DEERFLOW_TOKEN", token),
             ("DEERFLOW_THREAD_ID", thread_id),
         ]
         if not val
     ]
+    if not cookie and not token:
+        missing.append("DEERFLOW_COOKIE（或 DEERFLOW_TOKEN）")
     if missing:
         raise SystemExit(
             f"缺少必需环境变量：{', '.join(missing)}。请先在当前 shell 设置后运行，或使用 --dry-run 预览。"
